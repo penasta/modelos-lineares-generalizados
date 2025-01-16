@@ -1,0 +1,1848 @@
+---
+title: ""
+format: 
+  pdf:
+    number-sections: true
+    mainfont: Arial
+    include-in-header:
+      text: |
+        \setcounter{section}{-0}
+papersize: a4
+mathfont: Arial
+---
+```{=html}
+<style>
+.center {
+   text-align: center;
+}
+</style>
+```
+::: {.center data-latex=""}
+![](logo-UnB.eps){width=400} \
+\
+DEPARTAMENTO DE ESTATÍSTICA \
+:::
+```{r, results='asis', echo=FALSE}
+data_atual <- format(Sys.time(), '%d de %B de %Y')
+cat('\\begin{center}', '\n')
+cat(data_atual, '\n')
+cat('\\end{center}', '\n')
+```
+::: {.center data-latex=""}
+**Lista 1** \
+\
+Prof. Drª. Terezinha Kessia de Assis Ribeiro \
+\
+Modelos Lineares Generalizados \
+\
+Aluno: Bruno Gondim Toledo | Matrícula: 15/0167636
+\
+:::
+
+```{r setup, include=FALSE}
+if (!require("pacman")) install.packages("pacman")
+pacman::p_load(tidyverse, knitr,GLMsData,corrplot,moments,janitor,glmtoolbox,
+               lmtest,car,MASS,compareGroups,AER,htester,gridExtram,tidyr)
+```
+
+# Questão 1
+
+```{r, include=FALSE}
+data(nambeware)
+df = clean_names(nambeware)
+colnames(df) = c("tipo","diametro","tempo","preco")
+attach(df);rm(nambeware)
+```
+
+Para os dados da Nambe Mills, temos três variáveis quantitativas (diâmetro do produto em polegadas, tempo total de lixamento e polimento em minutos, preço em dólares do item) e uma variável categórica (tipo do item: cumbuca, cassarola, louça, prato e travessa). Realizar-se-á uma análise descritiva dessas variáveis, com foco na variável preço em dólares do item, que é o que se pretende responder a partir das demais covariáveis. Em seguida, será realizada uma modelagem afim de explicar o preço a partir das covariáveis pertinentes.
+
+## Correlação linear
+
+Podemos verificar a correlação linear da variável preço ante as covariáveis diâmetro e tempo, para tentar inferir sobre a linearidade destas.
+
+```{r, echo=FALSE, cache=TRUE}
+cor1 = paste0("Correlação: ", round(cor(preco,diametro),3))
+cor2 = paste0("Correlação: ", round(cor(preco,tempo),3))
+
+par(mfrow= c(1,2))
+plot(preco ~ diametro, main = "Diâmetro X preco", sub = cor1)
+plot(preco ~ tempo, main = "Tempo X preco", sub = cor2)
+par(mfrow= c(1,1))
+```
+
+Pelas Figuras, observa-se correlação linear forte com ambas as covariáveis, principalmente com a covariável tempo.
+
+```{r, echo=FALSE, cache=TRUE}
+corrplot(cor(data.frame(diametro, tempo, preco)), method="circle")
+```
+
+Verificando também correlações entre todas as variáveis e covariáveis, observamos que para todos os casos a correlação é forte. Isso pode levar a um problema de multicolinearidade quando da modelagem dessa variável.
+
+## Forma das distribuições empíricas
+
+Podemos investigar a forma das distribuições empíricas das variáveis resposta e explicativas, já investigando o formato aproximado da distribuição dessas variáveis afim de, por exemplo, observar se a distribuição Gaussiana é adequada para descrever estas distribuições.
+
+```{r, echo=FALSE, cache=TRUE}
+hist(diametro, main="Distribuição do Diâmetro", xlab="Diâmetro",ylab="Frequência", col="blue")
+hist(tempo, main="Distribuição do Tempo", xlab="Tempo",ylab="Frequência", col="green")
+hist(preco, main="Distribuição do preco", xlab="preco",ylab="Frequência", col="red")
+```
+
+Vemos que para todas as variáveis, em especial a variável preço, o histograma das distribuições sugerem que estas são positivas e alongadas à direita. Este é um resultado que faria sentido sem nem precisar dos gráficos, visto que preço, tempo e diâmetro são grandezas que não se espera que assumam valores negativos, por exemplo. Estes histogramas sugerem que uma modelagem Gaussiana não seja a mais adequada, provavelmente. Podemos também calcular medidas-resumo, com destaque para nossa variável resposta — preço:
+
+```{r, echo=FALSE, cache=TRUE}
+min = min(preco)
+q1 = quantile(preco,.25)
+mediana = median(preco)
+media = round(mean(preco),2)
+q3 = quantile(preco, .75)
+max = max(preco)
+assimetria = round(skewness(preco),2)
+curtose = round(kurtosis(preco),2)
+medidas = c(min,q1,mediana,media,q3,max,assimetria,curtose)
+names(medidas) = c("Mín.","1º Quartil","Mediana","Média","3º Quartil","Máx.","Assimetria","Curtose")
+kable(t(medidas))
+```
+
+Podemos observar um deslocamento a direita da média em relação a mediana, o que indica o alongamento a direita. Existe também uma grande amplitude entre o menor e o maior preço observado, e o coeficiente de assimetria confirma a análise visual do histograma sobre a assimetria a direita da variável. O coeficiente de curtose indica excesso de curtose, indicando também um possível problema de aderência à distribuição Gaussiana.
+
+```{r, echo=FALSE, cache=TRUE}
+boxplot(preco ~ tipo, main="Boxplot do preco pelo Tipo", ylab="", xlab="", col="yellow")
+```
+
+O boxplot do preço discriminado pelo tipo de produto indica que possivelmente teremos influência desta variável categórica na modelagem. Alguns produtos como prato e travessa apresentam medianas similares, o que indica que nem todos os fatores possivelmente serão considerados relevantes, porém produtos como cassarola e cumbuca apresentam mediana de preço significativamente diferente pelo boxplot, o que possivelmente será detectado pela modelagem.
+
+```{r, echo=FALSE, cache=TRUE}
+ggplot(data.frame(tipo, preco), aes(x=tipo, y=preco)) + 
+  geom_violin(fill="lightblue") + 
+  geom_boxplot(width=0.1, fill="white") +
+  theme_classic() +
+  labs(x=NULL,y=NULL)
+```
+
+O gráfico de violino pode ser utilizado também para visualização da variável preço, afim de observar a continuidade dos valores listados, auxiliando hipóteses formuladas sobre os histogramas e boxplot acerca do comportamento da variável, neste caso diferenciada pelos tipos de produtos.
+
+## Modelagem
+
+Uma alta correlação entre as covariáveis numéricas com a variável resposta (e entre si) indicam que pode ser útil realizar a modelagem da variável preco em função das covariáveis dos dados. A praxis manda iniciar a tentativa com um modelo simples e parcimonioso: a regressão linear gaussiana; ainda que pelo diagnóstico preliminar a forma da distribuição empírica da variável preço indica que possivelmente teremos problemas com esta modelagem.
+
+## Modelo 1: Gaussiana com link identidade
+
+```{r, echo=FALSE, cache=TRUE}
+fit1 = glm(preco ~ diametro + tempo + tipo,family = gaussian(link = "identity"))
+smr = summary(fit1)
+kable(round(smr[["coefficients"]],4))
+R2 <- cor(preco,fitted(fit1))^2
+R2a = adjR2(fit1)
+```
+
+Pelas estimativas do modelo, podemos observar que tanto a variável diametro quanto a variável tempo foram significativas para explicar a variável preço. A variavel tipo também apresentou significância para alguns produtos: fixado o produto "Bowl" (cumbuca), observamos que para $\alpha=0,05$ os produtos "Plate" (prato) e "Tray" (travessa) são siginificativos para explicar o preço. Para o modelo normal, é interessante observar os coeficientes R² e R² ajustado, que apresentaram valores `r R2` e `r R2a` respectivamente, indicando que o modelo explica bem os dados.
+
+Podemos realizar o procedimento automático *stepwise* para seleção de covariáveis deste modelo, buscando assim talvez obter um modelo ainda melhor e/ou parcimonioso que o modelo saturado apresentado anteriormente. 
+
+```{r, include=FALSE, cache=TRUE}
+backward <- step(fit1,direction = 'both')
+model = summary(backward)
+```
+
+```{r, echo=FALSE, cache=TRUE}
+kable(round(model[["coefficients"]],4))
+```
+
+Pelos resultados do procedimento, nota-se que o modelo saturado é justamente o melhor modelo segundo esta metodologia, indicando que podemos proceder para os diagnósticos dos pressupostos deste modelo.
+
+```{r, echo=FALSE,results='hide',fig.keep='all', cache=TRUE}
+sw = shapiro.test(fit1$residuals)
+envelope(fit1, rep=100, conf=0.95, type="quantile",
+       main = paste0("P-valor do teste de Shapiro-Wilk: ",round(sw$p.value,3)))
+```
+
+```{r, echo=FALSE,results='hide',fig.keep='all', cache=TRUE,fig.height=5, fig.width=5}
+fit.model = lm(preco ~ diametro + tempo + tipo)
+source("diag_norm.R") 
+```
+
+O modelo de regressão linear abarca uma série de pressupostos afim de tornar seus resultados verossímeis, sendo eles independência, normalidade e homocedasticidade dos resíduos. Pelo primeiro gráfico desta seção, do envelope simulado dos resíduos com o teste de Shapiro-Wilk para normalidade, já verificamos uma fuga para um nível $\alpha=95\%$ do pressuposto de normalidade. Demais pressupostos podem ser analisados, mas visto que já para o primeiro temos um problema, tentarei outro modelo afim de obter ajuste que cumpra pressupostos.
+
+Conforme discutido em aula, os ajustes MLG perdem em explicabilidade e exatidão, mas fornecem modelos mais flexíveis ante a estes pressupostos, reduzindo o diagnóstico a análises mais flexíveis dos erros.
+
+## Modelo 2: Gaussiana com link log
+
+Como aparentava termos obtido um bom ajuste com a regressão linear múltipla, é possível que introduzindo uma função de ligação log já seja possível contornar alguns dos problemas do diagnóstico do modelo.
+
+```{r, echo=FALSE, cache=TRUE}
+fit2 = glm(preco ~ diametro + tempo + tipo,family = gaussian(link = "log"))
+smr = summary(fit2)
+kable(round(smr[["coefficients"]],4))
+R2 <- cor(preco,fitted(fit2))^2
+R2a = adjR2(fit2)
+```
+
+Notamos que para o modelo GLM Gaussiano com ligação log, obtemos significância dos parâmetros bastante comparáveis com o modelo anterior, com a diferença da significância dos tipos de produtos que são pertinentes sob um valor $\alpha = 0,05$; neste caso apenas a cassarola sendo significativa ante ao produto de referência: a cumbuca. Dos coeficientes R² e R² ajustado, com valores `r R2` e `r R2a` respectivamente, pode-se dizer que este modelo aparenta performar bem sobre os dados
+
+```{r, include=FALSE, cache=TRUE}
+backward <- step(fit2,direction = 'both')
+model = summary(backward)
+```
+
+```{r, echo=FALSE, cache=TRUE}
+kable(round(model[["coefficients"]],4))
+```
+
+O Procedimento *Stepwise* para este modelo também chega a uma conclusão análoga à anterior, indicando que o modelo saturado é o melhor modelo, permitindo assim partir para a análise de diagnósticos
+
+### Normalidade
+
+```{r, echo=FALSE,results='hide',fig.keep='all', cache=TRUE}
+sw = shapiro.test(fit2$residuals)
+envelope(fit2, rep=100, conf=0.95, type="quantile",main = paste0("P-valor do teste de Shapiro-Wilk: ",round(sw$p.value,3)))
+```
+
+O pressuposto de normalidade aparenta ser atendido para este modelo.
+
+### Homocedasticidade
+
+```{r, echo=FALSE, cache=TRUE}
+bp = bptest(fit2)
+plot(fitted(fit2), resid(fit2),
+     main = paste0("P-valor do teste de Breusch-Pagan studentizado: ", round(bp$p.value,3)))
+```
+
+O gráfico dos erros contra os valores ajustados, além do teste de Breusch-Pagan, indicam que este é um modelo heterocedástico. Para os MLGs, em geral isto não é um problema, visto que este tipo de modelagem permite a heterocedasticidade dos dados. Porém, para a família Gaussiana, isso deve ser observado com cautela.
+
+### Influência
+
+Observaremos alguns dos gráficos habitualmente utilizados para análise de pontos influentes
+
+```{r, echo=FALSE, cache=TRUE}
+cooksd <- cooks.distance(fit2)
+plot(cooksd, main = "Distância de Cook", ylab = "", xlab = "")
+abline(h = 4/(nrow(fit2$model)), col="red")
+```
+
+Pelo gráfico da distância de cook, notamos um valor extremamente, que é justamente o ponto 11: Uma travessa com preço 260: o maior valor observado da variável! Também é o produto de maior diâmetro, e maior tempo de polimento, portanto possivelmente trata-se de uma peça diferenciada das demais mesmo.
+
+```{r, echo=FALSE, cache=TRUE}
+std_res <- rstandard(fit2)
+plot(std_res, main = "Resíduos Padronizados", ylab = "", xlab = "Índice")
+abline(h = c(-2,2), col="red")
+```
+
+Pelo gráfico dos resíduos padronizados, notamos que a maior parte das observações se encontram a até 2 desvios do zero, com um outlier marcante: o ponto 11 novamente. Este é um ponto que possivelmente será um outlier em qualquer modelagem que for executada. Os pontos 2, 5, 7, 15 e 45 são os outros que também estão fora do valor típico de referência |2|.
+
+```{r, echo=FALSE, cache=TRUE}
+hat_values <- hatvalues(fit2)
+plot(hat_values, main = "Valores de Alavancagem (hat values)", ylab = "Alavancagem", xlab = "Índice")
+abline(h = 2*mean(hat_values), col="red")
+```
+
+Para análise de alavancagem, observamos novamente o ponto 2 com alguma alavancagem, o ponto 37 com alavancagem significativa, e principalmente o ponto 11 novamente, com a maior alavancagem individual.
+
+### Conclusão
+
+A modelagem normal com ligação identidade já se mostrou util para descrever estes dados, ainda que com problemas em pressupostos. A utilização da ligação log aparenta ter melhorado este problemas de pressupostos, entretanto ao custo de perda de interpretabilidade. A análise de influência mostra que alguns pontos (em especial o ponto 11) possivelmente melhoraria ainda mais a eficiência desta modelagem. Como a questão solicita a utilização de outros modelos, não faz sentido uma análise tão aprofundada dos resultados obtidos até aqui. Mas a termos práticos, a família Gaussiana, ainda que não seja a mais adequada por conta da forma da distribuição empírica da variável resposta, já seria suficiente para obter estimativas úteis acerca do preço baseado nas covariáveis tipo, diâmetro e tempo.
+
+Irei agora propor modelagem GLM com família Gama, utilizando funções de ligação pertinentes para esta família afim de obter um bom ajuste para estes dados.
+
+## Modelo 3: Gama com link identidade
+
+A distribuição gama é muito mais flexível que a distribuição normal, e a forma da distribuição empírica da variável preço se assemelha visualmente a uma distribuição gama com parâmetros $k = \theta = 2$.
+
+```{r, echo=FALSE, cache=TRUE}
+fit3 = glm(preco ~ diametro + tempo + tipo,family = Gamma(link = "identity"))
+smr = summary(fit3)
+kable(round(smr[["coefficients"]],4))
+```
+
+Para o modelo GLM gama com ligação identidade, notamos que a significância dos parâmetros é análoga a significância observada para a modelagem gaussiana com ligação identidade, sendo tempo e diâmetro significativas, e algumas categorias da variável tipo significativas também ante ao fator de referência sob um $\alpha=0,05$ fixado.
+
+```{r, include=FALSE, cache=TRUE}
+backward <- step(fit3,direction = 'both')
+model = summary(backward)
+```
+
+```{r, echo=FALSE, cache=TRUE}
+kable(round(model[["coefficients"]],4))
+```
+
+A abordagem *stepwise* indica para esta família que também devemos ficar com o modelo saturado.
+
+### Diagnósticos
+
+#### Envelope simulado
+
+```{r, echo=FALSE,results='hide',fig.keep='all', cache=TRUE}
+envelope(fit3, rep=100, conf=0.95, type="quantile",main="Gráfico Q-Q com envelope simulado \n dos desvios quantílicos", ylab = "", xlab = "")
+```
+
+Realizando o envelope simulado dos desvios quantílicos sobre o erro do modelo, notamos que não aparenta haver grande fuga dos erros aos limites produzido pelo envelope simulado, indicando que o modelo se adequa bem aos dados
+
+#### Alavancagem
+
+```{r, echo=FALSE, cache=TRUE}
+fit3 = glm(preco ~ diametro + tempo + tipo,family = Gamma(link = "identity"))
+fit.model = fit3
+X <- model.matrix(fit.model)
+n <- nrow(X)
+p <- ncol(X)
+w <- fit.model$weights
+W <- diag(w)
+H <- solve(t(X)%*%W%*%X)
+H <- sqrt(W)%*%X%*%H%*%t(X)%*%sqrt(W)
+h <- diag(H)
+fi <- gamma.shape(fit.model)$alpha
+ts <- resid(fit.model,type="pearson")*sqrt(fi/(1-h))
+td <- resid(fit.model,type="deviance")*sqrt(fi/(1-h))
+di <- (h/(1-h))*(ts^2)
+a <- max(td)
+b <- min(td)
+plot(fitted(fit.model),h,xlab="Valor Ajustado", ylab="Medida h", pch=16)
+```
+
+Da Figura acima, notamos que existem alguns pontos de alavancagem, ainda que aparentemente sob uma magnitude inferior ao comparado no modelo Gaussiano. O ponto 11 segue sendo o principal ponto de alavancagem.
+
+#### Distância de Cook
+
+```{r, echo=FALSE, cache=TRUE}
+plot(di,xlab="Índice", ylab="Distância de Cook", pch=16)
+```
+
+O gráfico da distância de Cook mostra um resultado interessante. Ainda que o ponto 11 seja ainda considerado um ponto influente, com medida de cook alta, o ponto com maior medida de Cook é o ponto 59: o último ponto dos dados, que contém o menor valor na variável preço: 21,5; sendo este um prato com também o menor diâmetro do conjunto de dados.
+
+#### Independência
+
+```{r, echo=FALSE, cache=TRUE}
+plot(fitted(fit.model),td,xlab="Valor Ajustado", ylab="Resíduo Componente do Desvio",
+ylim=c(b-1,a+1),pch=16)
+abline(2,0,lty=2)
+abline(-2,0,lty=2)
+```
+
+O gráfico do resíduo componente do desvio contra os valores ajustados mostra que grande parte dos pontos se adequa aos limites espedados, com apenas 4 pontos ultrapassando a margem usualmente utilizada, ainda que sem grande fuga da referência. Não aparenta haver um padrão claro nos dados, sugerindo independência.
+
+#### Qualidade do ajuste
+
+```{r, echo=FALSE, cache=TRUE}
+w <- fit.model$weights
+eta <- predict(fit.model)
+z <- eta + resid(fit.model, type="pearson")/sqrt(w)
+plot(predict(fit.model),z,xlab="Preditor Linear", 
+ylab="Variável z", pch=16)
+```
+
+Observando a Figura acima, o modelo aparenta ter obtido um bom ajuste, em especial para os pontos de maior e menor valor, porém com certa fuga nos pontos centrados ao redor da média, indicando que é um modelo útil, mas que pode ser tentado algum modelo mais sofisticado
+
+## Modelo 4: gama com link inversa
+
+A ligação canônica do GLM gama é a inversa, portanto irei testar também a modelagem com esta função de ligação.
+
+```{r, echo=F, cache=TRUE}
+fit4 = glm(preco ~ diametro + tempo + tipo,family = Gamma(link = "inverse"))
+smr = summary(fit4)
+kable(round(smr[["coefficients"]],4))
+```
+
+Para este modelo, as covariáveis tempo e diâmetro seguem sendo extremamente significativas sob qualquer nível de significância, enquanto que para a covariável tipo, apenas a categoria cassarola apresenta significância ante a categoria de referência; a cumbuca.
+
+```{r, include=F, cache=TRUE}
+backward <- step(fit4,direction = 'both')
+model = summary(backward)
+```
+
+```{r, echo=F, cache=TRUE}
+kable(round(model[["coefficients"]],4))
+```
+
+O procedimento *stepwise* indica continuar com todas as covariáveis no modelo. Ainda que a significância de algumas categorias tenha diminuido, covariável ainda é percebida como útil e parcimoniosa para bom ajuste deste modelo.
+
+### Diagnósticos
+
+#### Envelope simulado
+
+```{r, echo=FALSE,results='hide',fig.keep='all', cache=TRUE}
+envelope(fit4, rep=100, conf=0.95, type="quantile",main="Gráfico Q-Q com envelope simulado \n dos desvios quantílicos", ylab = "", xlab = "")
+```
+
+Realizando o envelope simulado dos desvios quantílicos sobre o erro do modelo, notamos que existe uma fuga dos valores esperados em torno do zero, o que pode comprometer a qualidade do ajuste deste modelo.
+
+#### Alavancagem
+
+```{r, echo=FALSE, cache=TRUE}
+fit.model = fit4
+X <- model.matrix(fit.model)
+n <- nrow(X)
+p <- ncol(X)
+w <- fit.model$weights
+W <- diag(w)
+H <- solve(t(X)%*%W%*%X)
+H <- sqrt(W)%*%X%*%H%*%t(X)%*%sqrt(W)
+h <- diag(H)
+fi <- gamma.shape(fit.model)$alpha
+ts <- resid(fit.model,type="pearson")*sqrt(fi/(1-h))
+td <- resid(fit.model,type="deviance")*sqrt(fi/(1-h))
+di <- (h/(1-h))*(ts^2)
+a <- max(td)
+b <- min(td)
+plot(fitted(fit.model),h,xlab="Valor Ajustado", ylab="Medida h", pch=16)
+```
+
+Da Figura acima, notamos que existem pontos com alavancagem significativamente alta, incluindo um outlier bastante significativo — sendo este justamente o ponto 11, de maior valor na variável preço.
+
+#### Distância de Cook
+
+```{r, echo=FALSE, cache=TRUE}
+plot(di,xlab="Índice", ylab="Distância de Cook", pch=16)
+```
+
+O gráfico da distância de Cook mostra um resultado análogo ao observado nos modelos gaussianos, porém em uma magnitude ainda maior: o ponto 11 é extremamente influente.
+
+#### Independência
+
+```{r, echo=FALSE, cache=TRUE}
+plot(fitted(fit.model),td,xlab="Valor Ajustado", ylab="Resíduo Componente do Desvio",
+ylim=c(b-1,a+1),pch=16)
+abline(2,0,lty=2)
+abline(-2,0,lty=2)
+```
+
+O gráfico do resíduo componente do desvio contra os valores ajustados mostra que, ainda que a maioria dos pontos esteja dentro do esperado, existem alguns valores fora e um valor extremamente aberrante: o ponto 11.
+
+#### Qualidade do ajuste
+
+```{r, echo=FALSE, cache=TRUE}
+w <- fit.model$weights
+eta <- predict(fit.model)
+z <- eta + resid(fit.model, type="pearson")/sqrt(w)
+plot(predict(fit.model),z,xlab="Preditor Linear", 
+ylab="Variável z", pch=16)
+```
+
+Observando a Figura acima, o modelo aparenta ter obtido um ajuste prejudicado em relação aos demais. Possivelmente o ponto 11 foi o maior responsável por este resultado, por tudo observado nos diagnósticos anteriores.
+
+## Modelo 5: Normal inversa com link canônico
+
+Será testada também a modelagem GLM utilizando a distribuição Normal inversa com algumas funções de ligação. Inicialmente será utilizada a função canônica para esta distribuição, $\frac{1}{\mu^2}$
+
+```{r, echo=FALSE, warning=FALSE, cache=TRUE}
+fit5 = glm(preco ~ diametro + tempo + tipo,
+           family = inverse.gaussian(link = "1/mu^2"),
+           start = coef(fit1))
+smr = summary(fit5)
+kable(round(smr[["coefficients"]],4))
+```
+
+Os resultados desta modelagem devem ser observados com calma. Este foi o primeiro modelo que indica a variável tempo como não significativa, possivelmente por problemas de multicolinearidade antecipados pela análise descritiva. Também este modelo não encontra significância em nenhuma categoria da variável tipo ante a categoria de referência, restando apenas o intercepto e a variável diâmetro. Estes resultados **NÃO** são confiáveis, visto que o modelo apresentou problemas de convergência quando executada a modelagem no *software* R.
+
+```{r, echo=FALSE,results='hide',fig.keep='all', warning=FALSE, cache=TRUE}
+envelope(fit5, rep=100, conf=0.95, type="quantile")
+```
+
+A abordagem *stepwise* não funcionou, e o gráfico dos resíduos quantílicos com envelope simulado também apresentou problemas de convergência.
+
+Por todos estes problemas, este modelo não é possível de analisar mais profundamente.
+
+## Modelo 6: Normal inversa com link identidade
+
+Dado todos os problemas com a ligação canônica, podemos dar um passo atrás e testar a modelagem com a normal inversa utilizando a função de ligação identidade
+
+```{r, echo=FALSE, cache=TRUE}
+fit6 = glm(preco ~ diametro + tempo + tipo,
+           family = inverse.gaussian(link = "identity"))
+smr = summary(fit6)
+kable(round(smr[["coefficients"]],4))
+```
+As estimativas produzidas pelo modelo são mais comparáveis com todos os modelos testados até então. As variáveis diâmetro e tempo são acusadas como bastante significativas, e duas categorias da variável tipo são acusadas como significativa ante a categoria de referência, sendo elas o prato e a travessa.
+
+```{r, include=FALSE, cache=TRUE}
+backward <- step(fit6,direction = 'both')
+model = summary(backward)
+```
+
+```{r, echo=FALSE, cache=TRUE}
+kable(round(model[["coefficients"]],4))
+```
+
+Neste caso também, o procedimento *stepwise* recomenda a manutenção do modelo saturado para melhor ajuste do modelo.
+
+```{r, echo=FALSE,results='hide',fig.keep='all', cache=TRUE}
+envelope(fit6, rep=100, conf=0.95, type="quantile", main = "Desvio quantílico com envelope simulado")
+```
+
+Analisando os desvios quantílicos do modelo com envelope simulado, notamos que existem diversos valores centrais ultrapassando o limite do envelope. Ainda que a magnitude deste desvio não seja aparentemente tão grande, isto é um significativo pertinente que este modelo não obteve boa qualidade de ajuste comparado com todos os modelos testados até agora.
+
+## Modelo 7: Normal inversa com link log
+
+Apesar dos dois últimos resultados, é possível que a distribuição normal inversa seja útil para modelar estes dados, bastando apenas escolher uma função de ligação melhor para este caso. Testarei a função de ligação log
+
+```{r, echo=FALSE, cache=TRUE}
+fit7 = glm(preco ~ diametro + tempo + tipo,
+           family = inverse.gaussian(link = "log"))
+smr = summary(fit7)
+kable(round(smr[["coefficients"]],4))
+```
+
+Os parâmetros acusados como significativos para este modelo são análogos aos encontrados anteriormente, com as covariáveis tempo e diâmetro apresentando alta significância, e algumas categorias da variável tipo apresentando significância ante a categoria de referência.
+
+```{r, include=F, cache=TRUE}
+backward <- step(fit7,direction = 'both')
+model = summary(backward)
+```
+
+```{r, echo=F, cache=TRUE}
+kable(round(model[["coefficients"]],4))
+```
+
+O procedimento *stepwise* indica o mesmo observado para os outros modelos — isto é, indica pela opção ao modelo saturado.
+
+```{r, echo=FALSE,results='hide',fig.keep='all', cache=TRUE}
+envelope(fit7, rep=100, conf=0.95, type="quantile",
+         main="Resíduo quantílico com envelope simulado")
+```
+
+Diferente do observado anteriormente, o gráfico dos resíduos quantílicos com envelope simulado para este modelo não apresenta grande fuga dos valores observados, com apenas um ou dois pontos ultrapassando o limite estabelecido pelo envelope. Isso indica que este é um dos modelos que também pode ser escolhido para realizar esta modelagem.
+
+## Modelo final
+
+Diversas famílias de distribuições e funções de ligação foram testadas afim de escolher aquela que obtive melhor ajuste, e também parcimônia do modelo e interpretação. Desta forma, acredito que uma boa escolha para este conjunto seja o modelo 3, isto é, o MLG Gama com ligação identidade, pois forneceu bom ajuste, e com qualidade de ajuste aceitável. Levando em consideração também a análise exploratória realizada anteriormente à modelagem, podemos observar que a variável resposta é positiva e assimétrica, uma característica melhor suportada pelo modelo gama do que pelo modelo gaussiano.
+
+```{r, echo=FALSE, cache=TRUE}
+fit3 = glm(preco ~ diametro + tempo + tipo,family = Gamma(link = "identity"))
+smr = summary(fit3)
+kable(round(smr[["coefficients"]],4))
+```
+
+### Diagnósticos
+
+#### Envelope simulado
+
+```{r, echo=FALSE,results='hide',fig.keep='all', cache=TRUE}
+envelope(fit3, rep=100, conf=0.95, type="quantile",main="Gráfico Q-Q com envelope simulado \n dos desvios quantílicos", ylab = "", xlab = "")
+```
+
+Realizando o envelope simulado dos desvios quantílicos sobre o erro do modelo, notamos que não aparenta haver grande fuga dos erros aos limites produzido pelo envelope simulado, indicando que o modelo se adequa bem aos dados
+
+#### Alavancagem
+
+```{r, echo=FALSE, cache=TRUE}
+fit3 = glm(preco ~ diametro + tempo + tipo,family = Gamma(link = "identity"))
+fit.model = fit3
+X <- model.matrix(fit.model)
+n <- nrow(X)
+p <- ncol(X)
+w <- fit.model$weights
+W <- diag(w)
+H <- solve(t(X)%*%W%*%X)
+H <- sqrt(W)%*%X%*%H%*%t(X)%*%sqrt(W)
+h <- diag(H)
+fi <- gamma.shape(fit.model)$alpha
+ts <- resid(fit.model,type="pearson")*sqrt(fi/(1-h))
+td <- resid(fit.model,type="deviance")*sqrt(fi/(1-h))
+di <- (h/(1-h))*(ts^2)
+a <- max(td)
+b <- min(td)
+plot(fitted(fit.model),h,xlab="Valor Ajustado", ylab="Medida h", pch=16)
+```
+
+Da Figura acima, notamos que existem alguns pontos de alavancagem. Os pontos 29 e 59 são os principais pontos de alavancagem.
+
+#### Distância de Cook
+
+```{r, echo=FALSE, cache=TRUE}
+plot(di,xlab="Índice", ylab="Distância de Cook", pch=16)
+```
+
+O gráfico da distância de Cook mostra que os pontos 14 e 59 são de maior influência, com medida de cook alta > 1, sendo o ponto com maior medida de Cook o 59, com valor maior do que 9: o último ponto dos dados, que contém o menor valor na variável preço: 21,5; sendo este um prato com também o menor diâmetro do conjunto de dados.
+
+Dito isso, irei realizar o ajuste removendo os pontos 14, 29 e 59.
+
+```{r, include=FALSE}
+df <- df[-c(14, 29, 59),]
+attach(df)
+```
+
+```{r, echo=FALSE, cache=TRUE}
+fit3 = glm(preco ~ diametro + tempo + tipo,family = Gamma(link = "identity"))
+smr = summary(fit3)
+kable(round(smr[["coefficients"]],4))
+```
+
+Podemos ver uma leve diferença nos parâmetros com a remoção destes pontos.
+
+Realizando o diagnóstico sem estes 3 pontos
+
+```{r, echo=FALSE,results='hide',fig.keep='all', cache=TRUE}
+envelope(fit3, rep=100, conf=0.95, type="quantile",main="Gráfico Q-Q com envelope simulado \n dos desvios quantílicos", ylab = "", xlab = "")
+```
+
+Os desvios aparentam estar comportados, seguindo a tendência esperada
+
+```{r, echo=FALSE, cache=TRUE}
+fit3 = glm(preco ~ diametro + tempo + tipo,family = Gamma(link = "identity"))
+fit.model = fit3
+X <- model.matrix(fit.model)
+n <- nrow(X)
+p <- ncol(X)
+w <- fit.model$weights
+W <- diag(w)
+H <- solve(t(X)%*%W%*%X)
+H <- sqrt(W)%*%X%*%H%*%t(X)%*%sqrt(W)
+h <- diag(H)
+fi <- gamma.shape(fit.model)$alpha
+ts <- resid(fit.model,type="pearson")*sqrt(fi/(1-h))
+td <- resid(fit.model,type="deviance")*sqrt(fi/(1-h))
+di <- (h/(1-h))*(ts^2)
+a <- max(td)
+b <- min(td)
+plot(fitted(fit.model),h,xlab="Valor Ajustado", ylab="Medida h", pch=16)
+```
+
+```{r, echo=FALSE, cache=TRUE}
+plot(di,xlab="Índice", ylab="Distância de Cook", pch=16)
+```
+
+Agora para este modelo, dois pontos se destacam tanto em alavancagem quanto em influência, sendo estes os pontos 47 e 53. Irei testar removê-los para verificar o ajuste.
+
+```{r, include=FALSE}
+df <- df[-c(47,53),]
+attach(df)
+```
+
+```{r, echo=FALSE, cache=TRUE}
+fit3 = glm(preco ~ diametro + tempo + tipo,family = Gamma(link = "identity"))
+smr = summary(fit3)
+kable(round(smr[["coefficients"]],4))
+```
+
+```{r, echo=FALSE,results='hide',fig.keep='all', cache=TRUE}
+envelope(fit3, rep=100, conf=0.95, type="quantile",main="Gráfico Q-Q com envelope simulado \n dos desvios quantílicos", ylab = "", xlab = "")
+```
+
+Os desvios aparentam estar comportados, seguindo a tendência esperada
+
+```{r, echo=FALSE, cache=TRUE}
+fit3 = glm(preco ~ diametro + tempo + tipo,family = Gamma(link = "identity"))
+fit.model = fit3
+X <- model.matrix(fit.model)
+n <- nrow(X)
+p <- ncol(X)
+w <- fit.model$weights
+W <- diag(w)
+H <- solve(t(X)%*%W%*%X)
+H <- sqrt(W)%*%X%*%H%*%t(X)%*%sqrt(W)
+h <- diag(H)
+fi <- gamma.shape(fit.model)$alpha
+ts <- resid(fit.model,type="pearson")*sqrt(fi/(1-h))
+td <- resid(fit.model,type="deviance")*sqrt(fi/(1-h))
+di <- (h/(1-h))*(ts^2)
+a <- max(td)
+b <- min(td)
+plot(fitted(fit.model),h,xlab="Valor Ajustado", ylab="Medida h", pch=16)
+```
+
+```{r, echo=FALSE, cache=TRUE}
+plot(di,xlab="Índice", ylab="Distância de Cook", pch=16)
+```
+
+Agora, os novos pontos de alavancagem e influência foram os pontos 10 e 41. Podemos testar remove-los também
+
+```{r, include=FALSE}
+df <- df[-c(10,41),]
+attach(df)
+```
+
+```{r, echo=FALSE, cache=TRUE}
+fit3 = glm(preco ~ diametro + tempo + tipo,family = Gamma(link = "identity"))
+smr = summary(fit3)
+kable(round(smr[["coefficients"]],4))
+```
+
+Vemos novamente uma leve alteração na estimativa dos parâmetros do modelo
+
+```{r, echo=FALSE,results='hide',fig.keep='all', cache=TRUE}
+envelope(fit3, rep=100, conf=0.95, type="quantile",main="Gráfico Q-Q com envelope simulado \n dos desvios quantílicos", ylab = "", xlab = "")
+```
+
+Os desvios aparentam estar comportados, seguindo a tendência esperada
+
+```{r, echo=FALSE, cache=TRUE}
+fit3 = glm(preco ~ diametro + tempo + tipo,family = Gamma(link = "identity"))
+fit.model = fit3
+X <- model.matrix(fit.model)
+n <- nrow(X)
+p <- ncol(X)
+w <- fit.model$weights
+W <- diag(w)
+H <- solve(t(X)%*%W%*%X)
+H <- sqrt(W)%*%X%*%H%*%t(X)%*%sqrt(W)
+h <- diag(H)
+fi <- gamma.shape(fit.model)$alpha
+ts <- resid(fit.model,type="pearson")*sqrt(fi/(1-h))
+td <- resid(fit.model,type="deviance")*sqrt(fi/(1-h))
+di <- (h/(1-h))*(ts^2)
+a <- max(td)
+b <- min(td)
+plot(fitted(fit.model),h,xlab="Valor Ajustado", ylab="Medida h", pch=16)
+```
+
+```{r, echo=FALSE, cache=TRUE}
+plot(di,xlab="Índice", ylab="Distância de Cook", pch=16)
+```
+
+E novamente temos pontos de influência e alavancagem. Analisando estes pontos, não aparentam ser outliers do conjunto de dados, levando a crer que ainda que eu siga removendo estes pontos, numa próxima análise haverão novos pontos de influência e alavancagem. Como as estimativas dos parâmetros não estão sendo significativamente alteradas, acredito que o melhor procedimento seja re-inserir todos os pontos, e fixar remover apenas aqueles com magnitude > 1 após cada re-ajuste, tanto para alavancagem tanto para distancia de Cook. Desta forma, optei por remover os pontos 14, 43, 55 e 59, e interpretar o ajuste final sem esses pontos
+
+```{r, include=FALSE}
+data(nambeware)
+df = clean_names(nambeware)
+colnames(df) = c("tipo","diametro","tempo","preco")
+df <- df[-c(14,43,55,59),]
+attach(df);rm(nambeware)
+```
+
+```{r, echo=FALSE, cache=TRUE}
+fit3 = glm(preco ~ diametro + tempo + tipo,family = Gamma(link = "identity"))
+smr = summary(fit3)
+kable(round(smr[["coefficients"]],4))
+```
+
+Como o modelo com a ligação identidade foi utilizado, a interpretação dos coeficientes é feita de forma direta, isto é, temos um intercepto negativo, e para as covariáveis tempo e diâmetro, o aumento de uma unidade de tempo implica no aumento pontual de aproximadamente 1,66 unidades de preço, assim como o aumento de uma unidade no diâmetro, aumenta em aproximadamente 5,45 unidades o preço. Fixada a categoria de referência para a variável tipo, podemos dizer que existe significância para afirmar que um prato de mesma dimensão e tempo de polimento seria em média 14,21 U.M. mais barato que uma cumbuca, e uma travessa de mesmo diametro e tempo de polimento que uma cumbuca seria 23,61 U.M. mais barato que uma cumbuca. Para a cassarola e as louças, este coeficiente seria positivo porém insignificante a $\alpha=0,05$, portanto não devem ser considerados.
+
+```{r, echo=FALSE,results='hide',fig.keep='all', cache=TRUE}
+envelope(fit3, rep=100, conf=0.95, type="quantile",main="Gráfico Q-Q com envelope simulado \n dos desvios quantílicos", ylab = "", xlab = "")
+```
+
+Todos os pontos se encontram dentro do envelope simulado construido para os resíduos quantílicos, com apenas um ponto na fronteira mas ainda contido.
+
+```{r, echo=FALSE, cache=TRUE}
+fit3 = glm(preco ~ diametro + tempo + tipo,family = Gamma(link = "identity"))
+fit.model = fit3
+X <- model.matrix(fit.model)
+n <- nrow(X)
+p <- ncol(X)
+w <- fit.model$weights
+W <- diag(w)
+H <- solve(t(X)%*%W%*%X)
+H <- sqrt(W)%*%X%*%H%*%t(X)%*%sqrt(W)
+h <- diag(H)
+fi <- gamma.shape(fit.model)$alpha
+ts <- resid(fit.model,type="pearson")*sqrt(fi/(1-h))
+td <- resid(fit.model,type="deviance")*sqrt(fi/(1-h))
+di <- (h/(1-h))*(ts^2)
+a <- max(td)
+b <- min(td)
+plot(fitted(fit.model),h,xlab="Valor Ajustado", ylab="Medida h", pch=16)
+```
+
+Existem alguns pontos de alavancagem aumentada em relação aos demais, mas conforme discutido nos textos anteriores, optei por considerar esta magnitude aceitável (abaixo de 1).
+
+```{r, echo=FALSE, cache=TRUE}
+plot(di,xlab="Índice", ylab="Distância de Cook", pch=16)
+```
+
+Para a distância de cook, em geral os pontos estão em magnitudes comparáveis, com dois pontos ultrapassando a distância de 0,6 mas todos inferiores a 1. Conforme discutido anteriormente, acredito que esta seja uma magnitude aceitável para este modelo, e irei considerar normal estes pontos.
+
+```{r, echo=FALSE, cache=TRUE}
+fit.model = fit3
+w <- fit.model$weights
+eta <- predict(fit.model)
+z <- eta + resid(fit.model, type="pearson")/sqrt(w)
+plot(predict(fit.model),z,xlab="Preditor Linear", 
+ylab="Variável z", pch=16)
+```
+
+Finalmente, analisando o preditor linear, podemos ver que temos bastante confiança das estimativas dos parâmetros fornecidas anteriormente, com grande parte dos valores sendo aproximadamente corretamente preditos em média se comparado ao valor real, formando uma tendência de reta crescente e semelhante a um gráfico Q-Q normal, com uma boa aderência do preditor linear em relação à variável z.
+
+# Questão 2
+
+Neste estudo de caso, estamos trabalhando com dados relacionados a contagem de infecção de ouvido em recrutas. Nossa variável resposta será o número de infecções de ouvidos de um recruta, suportado pelas covariáveis hábito (se o recruta tem hábito de nadar ocasional — Occas; ou frequente — Freq), local (local onde o recruta nada, praia — Beach; ou piscina — NonBeach), fetaria (faixa etária do recruta, podendo ser 15 a 19 anos, 20 a 24 anos, 25 a 29 anos) e genero (masculino — Male ou feminino — Female).
+
+```{r, include=FALSE}
+rm(list=ls())
+recrutas <- read.table("../arquivos/ListaP1/recrutas.txt", header=T); attach(recrutas)
+habito <- as.factor(habito)
+local <- as.factor(local);
+fetaria <- as.factor(fetaria)
+genero <- as.factor(genero)
+```
+
+## Análise descritiva
+
+### Número de infecções
+
+```{r, echo=FALSE, cache=TRUE}
+hist(ninfec, main="Distribuição do número de infecções", xlab="", ylab="Frequência", col="lightblue", border="black")
+kable(t(table(ninfec)))
+```
+
+Observando o Histograma e a Tabela da frequência do número de infecções de ouvido nos recrutas contidos no conjunto de dados, observamos que o valor varia de 0 a 17 infecções por recruta, com uma considerável inflação de zeros, bem como uma quantidade relevante de recrutas com 1 a 4 infecções de ouvido.
+
+### Análise bivariada
+
+Realizando uma análise bivariada, podemos ver para cada categoria das covariáveis o número de infecções de ouvido por meio de boxplots.
+
+Podemos produzir também tabelas bivariadas, fixando as covariáveis e vendo a frequência de cada uma das demais categorias, bem como observando a diferença nas médias de número de infecções para a categoria fixada.
+
+#### Número de infecções por habito; número de infecções por local
+
+```{r, echo=FALSE, cache=TRUE}
+boxplot(ninfec ~ habito, main="Nº de infecções por habito", xlab="", ylab="", col="lightblue")
+
+t2 <- compareGroups(habito ~ genero +  local + fetaria + ninfec , data=recrutas)
+t2 <- createTable(t2,  show.p.overall = FALSE)
+export2md(t2,format="markdown")
+
+boxplot(ninfec ~ local, main="Nº de infecções por local", xlab="", ylab="", col="lightgreen")
+
+t3 <- compareGroups(local ~ habito +  genero + fetaria + ninfec , data=recrutas)
+t3 <- createTable(t3,  show.p.overall = FALSE)
+export2md(t3,format="markdown")
+```
+
+Dos boxplots e tabelas acima, podemos observar que aparenta haver uma incidência maior de número de infecções entre os recrutas que nadam ocasionalmente ante aos que nadam frequentemente, bem como uma maior prevalência de infecções nos que nadam em piscinas ante aos que nadam na praia. 
+
+#### Número de infecções por faixa etária; número de infecções por gênero
+
+```{r, echo=FALSE, cache=TRUE}
+boxplot(ninfec ~ fetaria, main="Nº de infecções fetaria", xlab="", ylab="", col="lightcoral")
+
+t4 <- compareGroups(fetaria ~ habito +  local + genero + ninfec , data=recrutas)
+t4 <- createTable(t4,  show.p.overall = FALSE)
+export2md(t4,format="markdown")
+
+boxplot(ninfec ~ genero, main="Nº de infecções genero", xlab="", ylab="", col="lightgoldenrod")
+
+t1 <- compareGroups(genero ~ habito +  local + fetaria + ninfec , data=recrutas)
+t1 <- createTable(t1,  show.p.overall = FALSE)
+export2md(t1,format="markdown")
+```
+
+Pelos gráficos e tabelas acima, a faixa etária e o gênero numa análise bivariada aparentam não serem muito significantes se analisadas isoladamente quanto ao número de infecções, mas esta relação pode estar mascarada pela análise bivariada, e ser importante quanto consideradas mais variáveis — o paradoxo de Simpson.
+
+### Conclusões
+
+Da análise descritiva, temos um indicativo de que numa modelagem, as covariáveis local e habito serão significativas, enquanto gênero e faixa etária possivelmente não serão tão significantes. Por se tratar de um problema de contagem, é natural pensar em MLGs que abarcam este tipo de problema, sendo o mais simples o modelo Poisson. 
+
+## Modelagem
+
+No contexto de dados de contagem, a modelagem poisson em geral se mostra especialmente útil para modelagem, entretando observamos que neste problema existe uma inflação de zeros, o que pode levar a um problema de ajuste para o modelo Poisson, especialmente se considerarmos a função de ligação log. Neste caso, podemos explorar outras funções de ligação, bem como pensar em um modelo que se comporta melhor ante a dados inflacionados de zero, como por exemplo a modelagem utilizando a binomial negativa.
+
+### Modelo 1: MLG Poisson com função de ligação canônica
+
+Apesar da previsão de problema com o MLG Poisson com ligação log (canônica), faz parte da praxis testar este que seria o mais simples para dados de contagem.
+
+```{r, echo=FALSE, cache=TRUE}
+fit1 <- glm(ninfec ~ habito+local+fetaria+genero, family=poisson(link = "log"))
+smr = summary(fit1) 
+kable(round(smr[["coefficients"]],4))
+```
+
+Observando as significâncias dos parâmetros no modelo saturado, podemos observar que de fato a covariável gênero não foi significativa sob um $\alpha=0,05$. Temos entretando forte significância das covariáveis habito e local, conforme indicado na análise descritiva. Além disso, existe significância na subcategoria da faixa etaria 20 a 24 anos, ante a categoria de referência 15 a 19 anos — uma associação que não pode ser observada na análise descritiva.
+
+Podemos realizar a escolha manual de covariáveis ou, idealmente, uma escolha automatizada, utilizando a função stepAIC
+
+```{r, include=FALSE, cache=TRUE}
+stepAIC(fit1)
+```
+O procedimento stepAIC indica pelo modelo utilizando apenas as covariáveis local, hábito e faixa etária, não considerando o gênero significativo para a modelagem.
+
+```{r, echo=FALSE, cache=TRUE}
+fit1 <- glm(ninfec ~ habito+local+fetaria, family=poisson(link = "log"))
+smr = summary(fit1) 
+kable(round(smr[["coefficients"]],4))
+```
+
+Para este novo modelo com estas covariáveis, temos outras estimativas para os parâmetros, ainda que seja necessária etapas de diagnóstico antes da interpretação destes.
+
+```{r, include=FALSE, cache=TRUE}
+dispersiontest(fit1, alternative ="greater")
+resultados <- data.frame(
+  `Estatística` = "z",
+  `Valor` = 3.7828,
+  `p-valor` = "< 0,001",
+  `H1` = c("Sobredispersão")
+)
+```
+
+```{r, echo=FALSE, cache=TRUE}
+kable(resultados)
+```
+
+O modelo Poisson abarca a suposição de que $\mathbb{E}(Y) = Var(Y)$. Realizando um teste de equidispersão, notamos que a hipótese nula de equidispersão é rejeitada sob qualquer nível de significância, indicando que este não é um modelo adequado para estes dados.
+
+### Modelo 2: MLG Poisson com link raiz quadrada
+
+Podemos testar outra função de ligação, afim de conseguir um modelo que cumpra os pressupostos da família selecionada.
+
+```{r, echo=FALSE, cache=TRUE}
+fit2 <- glm(ninfec ~ habito+local+fetaria, family=poisson(link = "sqrt"))
+smr2 = summary(fit2) 
+kable(round(smr2[["coefficients"]],4))
+```
+
+Realizando o ajuste sob o modelo saturado e posteriormente realizando o procedimento stepAIC, notamos que neste modelo também a covariável gênero não é significativa sob um $\alpha=0,05$. Para este, para além das covariáveis significativas observadas no modelo anterior, também o subfator de faixa etária 25-29 se mostra significativo para um $\alpha=90\%$.
+
+```{r, include=FALSE, cache=TRUE}
+dispersiontest(fit2, alternative ="greater")
+resultados <- data.frame(
+  `Estatística` = "z",
+  `Valor` = 3.7785,
+  `p-valor` = "< 0,001",
+  `H1` = c("Sobredispersão")
+)
+```
+
+```{r, echo=FALSE, cache=TRUE}
+kable(resultados)
+```
+
+Realizando novamente um teste de equidispersão, notamos que novamente rejeitamos a hipótese nula de $\mathbb{E}(Y) = Var(Y)$. Isso indica que o modelo Poisson de fato não deve ser utilizado para estes dados.
+
+### Modelo 3: Binomial negativa com função de ligação canônica
+
+O modelo binomial negativo é geralmente utilizado para problemas de contagem em que não é possível obter um bom ajuste com o modelo Poisson, seja por inflação de zeros, seja por sobredispersão.
+
+```{r, echo=FALSE, cache=TRUE}
+fit3 <- glm.nb(ninfec ~ habito+local+fetaria+genero, link = "log")
+smr = summary(fit3) 
+kable(round(smr[["coefficients"]],4))
+```
+
+O modelo binomial negativo com função de ligação log (canônico) traz resultados diferentes dos modelos poisson experimentados anteriormente. As covariáveis hábito e local seguem significantes, enquanto que a covariável faixa etária perde a significância sob $\alpha=0,05$ para todas as categorias ante a de referência. A covariável gênero, bem como o intercepto, também não são significativos. 
+
+```{r, include=FALSE, cache=TRUE}
+stepAIC(fit3)
+```
+
+Pela análise anterior e também realizando o procedimento stepAIC, existe a indicação do modelo contendo apenas as covariáveis hábito e local para um ajuste mais adequado e parcimonioso.
+
+```{r, echo=FALSE, cache=TRUE}
+fit3 <- glm.nb(ninfec ~ habito+local, link = "log")
+smr = summary(fit3) 
+kable(round(smr[["coefficients"]],4))
+```
+
+Devemos realizar os diagnósticos antes de seguir com a interpretação das estimativas dos parâmetros.
+
+### Diagnósticos do modelo 3: Binomial negativa com ligação log
+
+#### Erros sob invelope simulado
+
+```{r, echo=FALSE, cache=TRUE}
+fit.model <- fit3
+X <- model.matrix(fit.model)
+n <- nrow(X)
+p <- ncol(X)
+fi <- fit.model$theta
+w <- fi*fitted(fit.model)/(fi + fitted(fit.model))
+W <- diag(w)
+H <- solve(t(X)%*%W%*%X)
+H <- sqrt(W)%*%X%*%H%*%t(X)%*%sqrt(W)
+h <- diag(H)
+td <- resid(fit.model,type="deviance")/sqrt(1-h)
+fi <- fit.model$theta
+e <- matrix(0,n,100)
+for(i in 1:100){
+  resp <- rnegbin(n, fitted(fit.model),fi)
+  fit <- glm.nb(resp ~ X)
+  w <- fit$weights
+  W <- diag(w)
+  H <- solve(t(X)%*%W%*%X)
+  H <- sqrt(W)%*%X%*%H%*%t(X)%*%sqrt(W)
+  h <- diag(H)
+  e[,i] <- sort(resid(fit,type="deviance")/sqrt(1-h))}
+e1 <- numeric(n)
+e2 <- numeric(n)
+for(i in 1:n){
+  eo <- sort(e[i,])
+  e1[i] <- (eo[2]+eo[3])/2
+  e2[i] <- (eo[97]+eo[98])/2}
+med <- apply(e,1,mean)
+faixa <- range(td,e1,e2)
+par(pty="s")
+qqnorm(td,xlab="Percentil da N(0,1)",
+       ylab="Componente do Desvio", ylim=faixa, pch=16, main="")
+par(new=TRUE)
+qqnorm(e1,axes=F,xlab="",ylab="",type="l",ylim=faixa,lty=1, main="")
+par(new=TRUE)
+qqnorm(e2,axes=F,xlab="",ylab="", type="l",ylim=faixa,lty=1, main="")
+par(new=TRUE)
+qqnorm(med,axes=F,xlab="", ylab="", type="l",ylim=faixa,lty=2, main="")
+```
+
+Analisando os erros do modelo utilizando um envelope simulado, o modelo binomial negativo aparenta ter ajustado bem os dados, com todos os valores contidos ou próximos do intervalo simulado construído pelo envelope
+
+#### Medida h
+
+```{r, echo=FALSE, cache=TRUE}
+fit3 <- glm.nb(ninfec ~ habito+local, link = "log")
+X <- model.matrix(fit.model)
+n <- nrow(X)
+p <- ncol(X)
+fi <- fit.model$theta
+w <- fi*fitted(fit.model)/(fi + fitted(fit.model))
+W <- diag(w)
+H <- solve(t(X)%*%W%*%X)
+H <- sqrt(W)%*%X%*%H%*%t(X)%*%sqrt(W)
+h <- diag(H)
+ts <- resid(fit.model,type="pearson")/sqrt(1-h)
+td <- resid(fit.model,type="deviance")/sqrt(1-h)
+di <- (h/(1-h))*(ts^2)
+a <- max(td)
+b <- min(td)
+plot(fitted(fit.model),h,xlab="Valor Ajustado", 
+ylab="Medida h", pch=16)
+```
+
+Observando os gráficos da medida h sobre os valores ajustados, temos o indicativo de que não existem pontos dominando as estimativas do modelo. No gráfico aparecem apenas 4 pontos, justamente porque todas as 287 observações obtiveram uma dessas 4 medidas, o que era esperado dado que trabalhamos apenas com duas covariáveis explicativas cada uma com apenas 2 fatores.
+
+#### Distâncias de Cook
+
+```{r, echo=FALSE, cache=TRUE}
+plot(di,xlab="Índice", ylab="Distância de Cook", pch=16)
+```
+
+O gráfico das distâncias de Cook também mostra que em geral não existem pontos que estejam inflando as estimativas do modelo. O ponto com maior valor de distância de cook é o ponto 249, com um valor de 0,48, o que em geral não é considerado tão aberrante.
+
+#### Resíduo componente desvio
+
+```{r, echo=FALSE, cache=TRUE}
+plot(td,xlab="Índice", ylab="Resíduo Componente do Desvio",
+ylim=c(b-1,a+1), pch=16)
+abline(2,0,lty=2)
+abline(-2,0,lty=2)
+```
+Observando o gráfico do resíduo componente desvio, notamos que o modelo se ajustou bem para a maioria dos dados, com apenas 3 pontos ultrapassando a banda desejável de |2|. Ainda assim, estes pontos não ultrapassam sob uma magnitude muito alta, estando abaixo de 3. Desta forma, seguimos confirmando o diagnóstico de bom ajuste do modelo até aqui.
+
+#### Resíduo componente desvio X valores ajustados.
+
+```{r, echo=FALSE, cache=TRUE}
+td <- resid(fit.model, type="deviance") / sqrt(1 - h)
+plot(fitted(fit.model), td, xlab="Valor Ajustado", 
+     ylab="Resíduo Componente do Desvio", pch=16)
+abline(h=2, lty=2, col="red")
+abline(h=-2, lty=2, col="red")
+```
+
+Pelo gráfico do resíduo componente desvio versus o vajor ajustado, podemos observar que o modelo ajusta bem para a maioria das observações, salvo 3 que estão fora do esperado. Estes pontos são as observações 31, 47 e 249, em que foram observadas 16, 17 e 10 infecções de ouvido, respectivamente. Isso indica que para estes valores aberrantes, o modelo não consegue fazer boas previsões, porém conseguindo realizar boas previsões para as demais observações, e sem que estes outliers comprometam o ajuste do modelo.
+
+#### Qualidade do ajuste
+
+```{r, echo=FALSE, cache=TRUE}
+eta = predict(fit.model)
+z = eta + resid(fit.model, type="pearson")/sqrt(w)
+plot(predict(fit.model),z,xlab="Preditor Linear", 
+ylab="Variavel z", pch=16)
+lines(smooth.spline(predict(fit.model), z, df=2))
+par(mfrow=c(1,1))
+```
+
+Notamos que a relação não é suave e nem linear, mas pela natureza dos dados contidos no conjunto de dados, não era esperado este comportamento, visto se tratar de um dado de contagem. 
+
+Podemos remover os pontos mais aberrantes para melhorar este ajuste — os pontos 31, 47 e 249.
+
+```{r, include=FALSE}
+rm(list=ls())
+recrutas <- read.table("../arquivos/ListaP1/recrutas.txt", header=T)
+recrutas <- recrutas[-c(31, 47, 249),]
+
+attach(recrutas)
+habito <- as.factor(habito)
+local <- as.factor(local);
+fetaria <- as.factor(fetaria)
+genero <- as.factor(genero)
+```
+
+```{r, echo=FALSE, cache=TRUE}
+fit3 <- glm.nb(ninfec ~ habito+local, link = "log")
+smr = summary(fit3) 
+kable(round(smr[["coefficients"]],4))
+```
+
+Removendo os pontos, temos novas estimativas para os parâmetros, levemente ajustadas.
+
+#### Erros sob invelope simulado
+
+```{r, echo=FALSE, cache=TRUE}
+fit.model <- fit3
+X <- model.matrix(fit.model)
+n <- nrow(X)
+p <- ncol(X)
+fi <- fit.model$theta
+w <- fi*fitted(fit.model)/(fi + fitted(fit.model))
+W <- diag(w)
+H <- solve(t(X)%*%W%*%X)
+H <- sqrt(W)%*%X%*%H%*%t(X)%*%sqrt(W)
+h <- diag(H)
+td <- resid(fit.model,type="deviance")/sqrt(1-h)
+fi <- fit.model$theta
+e <- matrix(0,n,100)
+for(i in 1:100){
+  resp <- rnegbin(n, fitted(fit.model),fi)
+  fit <- glm.nb(resp ~ X)
+  w <- fit$weights
+  W <- diag(w)
+  H <- solve(t(X)%*%W%*%X)
+  H <- sqrt(W)%*%X%*%H%*%t(X)%*%sqrt(W)
+  h <- diag(H)
+  e[,i] <- sort(resid(fit,type="deviance")/sqrt(1-h))}
+e1 <- numeric(n)
+e2 <- numeric(n)
+for(i in 1:n){
+  eo <- sort(e[i,])
+  e1[i] <- (eo[2]+eo[3])/2
+  e2[i] <- (eo[97]+eo[98])/2}
+med <- apply(e,1,mean)
+faixa <- range(td,e1,e2)
+par(pty="s")
+qqnorm(td,xlab="Percentil da N(0,1)",
+       ylab="Componente do Desvio", ylim=faixa, pch=16, main="")
+par(new=TRUE)
+qqnorm(e1,axes=F,xlab="",ylab="",type="l",ylim=faixa,lty=1, main="")
+par(new=TRUE)
+qqnorm(e2,axes=F,xlab="",ylab="", type="l",ylim=faixa,lty=1, main="")
+par(new=TRUE)
+qqnorm(med,axes=F,xlab="", ylab="", type="l",ylim=faixa,lty=2, main="")
+```
+
+Os resíduos seguem contidos no envelope simulado, dando indicativo de boa qualidade de ajuste
+
+#### Medida h
+
+```{r, echo=FALSE, cache=TRUE}
+fit3 <- glm.nb(ninfec ~ habito+local, link = "log")
+X <- model.matrix(fit.model)
+n <- nrow(X)
+p <- ncol(X)
+fi <- fit.model$theta
+w <- fi*fitted(fit.model)/(fi + fitted(fit.model))
+W <- diag(w)
+H <- solve(t(X)%*%W%*%X)
+H <- sqrt(W)%*%X%*%H%*%t(X)%*%sqrt(W)
+h <- diag(H)
+ts <- resid(fit.model,type="pearson")/sqrt(1-h)
+td <- resid(fit.model,type="deviance")/sqrt(1-h)
+di <- (h/(1-h))*(ts^2)
+a <- max(td)
+b <- min(td)
+plot(fitted(fit.model),h,xlab="Valor Ajustado", 
+ylab="Medida h", pch=16)
+```
+
+A medida h tem comportamendo análogo a anterior, sem grandes pontos de alavancagem.
+
+#### Distâncias de Cook
+
+```{r, echo=FALSE, cache=TRUE}
+plot(di,xlab="Índice", ylab="Distância de Cook", pch=16)
+```
+
+O gráfico das distâncias de cook também não apresenta uma grande fuga do esperado dada a magnitude.
+
+#### Resíduo componente desvio
+
+```{r, echo=FALSE, cache=TRUE}
+plot(td,xlab="Índice", ylab="Resíduo Componente do Desvio",
+ylim=c(b-1,a+1), pch=16)
+abline(2,0,lty=2)
+abline(-2,0,lty=2)
+```
+
+Apesar de padrões de escada, como são dados de contagem talvez fosse esperado algo do tipo. E, ainda assim, não é possível inferir um padrão claro.
+
+#### Resíduo componente desvio X valores ajustados.
+
+```{r, echo=FALSE, cache=TRUE}
+td <- resid(fit.model, type="deviance") / sqrt(1 - h)
+plot(fitted(fit.model), td, xlab="Valor Ajustado", 
+     ylab="Resíduo Componente do Desvio", pch=16)
+abline(h=2, lty=2, col="red")
+abline(h=-2, lty=2, col="red")
+```
+
+O resíduo componente desvio ainda tem um padrão estranho, porém contido no limite desejável.
+
+#### Qualidade do ajuste
+
+```{r, echo=FALSE, cache=TRUE}
+eta = predict(fit.model)
+z = eta + resid(fit.model, type="pearson")/sqrt(w)
+plot(predict(fit.model),z,xlab="Preditor Linear", 
+ylab="Variavel z", pch=16)
+lines(smooth.spline(predict(fit.model), z, df=2))
+par(mfrow=c(1,1))
+```
+
+Aparentemente, houve uma ligeira melhora na qualidade do ajuste ao remover os três pontos supracitados.
+
+### Interpretação do modelo
+
+Visto que o modelo binomial negativo com função de ligação canônico utilizando as covariáveis preditoras hábito e local não teve grandes fugas aos pressupostos, irei escolher este como o melhor modelo para interpretação
+
+```{r, echo=FALSE, cache=TRUE}
+kable(round(smr[["coefficients"]],4))
+```
+
+Analisando as estimativas dos parâmetros do modelo, notamos que para um $\alpha=0,05$ o intercepto do modelo torna-se significativo, ainda que na fronteira da insignificância. Temos então as covariáveis significativas hábito e local. Destas, notamos que, fixada a categoria de referência hábito frequênte de nadar, o hábito ocasional de nadar aumenta a taxa de ocorrência de infecção de ouvido em $e^{0,5678}\approx1,76 \rightarrow 76\%$ em relação aos recrutas com hábito de natação frequente, enquanto que nadar em piscina aumenta a taxa de ocorrência de infecção de ouvido em $e^{0,4506}\approx1,57 \rightarrow 57\%$ em relação aos recrutas que nadam na praia.
+
+```{r, include=FALSE}
+rm(list=ls())
+```
+
+# Questão 3
+
+```{r, include=FALSE}
+pulso <- scan("../arquivos/ListaP1/pulso.txt", list(pulsacao=0, habitof=0, peso=0))
+pulsacao = factor(pulso[[1]])
+habitof = factor(pulso[[2]])
+peso = pulso[[3]]
+pulso = data.frame(pulsacao,habitof,peso)
+rm(habitof,pulsacao,peso)
+attach(pulso)
+```
+
+## Análise descritiva
+
+```{r, echo=FALSE,cache=TRUE}
+df = pulso %>%
+  mutate(pulsacao = factor(ifelse(pulsacao == 1,"Normal","Alta")),
+         habitof = factor(ifelse(habitof == 1,"Sim","Não"))
+         )
+```
+
+Neste estudo de caso, temos um conjunto de dados de 93 observações, representando um indivíduo por observação, dos quais temos um registro da pulsação em repouso (normal ou alta), do hábito de fumar (sim ou não), e o peso do indivíduo. Buscaremos explicar a relação das covariáveis peso e hábito de fumar com a variável resposta pulsação em repouso.
+
+### Análise bivariada
+
+```{r, echo=FALSE,cache=TRUE}
+p1 <- ggplot(df, aes(x = pulsacao, y = peso, fill = pulsacao)) +
+  geom_boxplot() +
+  labs(x = "Pulsação", y = "Peso", fill = "Pulsação") +
+  theme_minimal()
+
+p2 <- ggplot(df, aes(x = pulsacao, fill = habitof)) +
+  geom_bar(position = "dodge") +
+  labs(x = "Pulsação", y = "", fill = "Hábito de Fumar") +
+  theme_minimal()
+
+grid.arrange(p1, p2, ncol = 2)
+
+```
+
+Dos gráficos acima, podemos observar algumas relações bivariadas entre a variável resposta e as covariáveis. Para os indivíduos com pulsação alta, o peso aparenta ser ligeiramente mais baixo. A proporção de indivíduos com hábito de fumar e com pressão alta aparenta ser bem maior que indivíduos sem o hábito de fumar. 
+
+### Todas as variáveis
+
+```{r, echo=FALSE, warning=FALSE,cache=TRUE}
+p1 = ggplot(df,aes(x = habitof, fill = pulsacao)) +
+  geom_bar(position = "stack") +
+  labs(x = "Hábito de Fumar", fill = "Pulsação", y = "") +
+  theme_minimal()
+
+p2 = ggplot(df, aes(x = habitof, y = peso, fill = pulsacao)) +
+  geom_boxplot() +
+  labs(x = "Hábito de Fumar", y = "Peso", fill = "Pulsação") +
+  theme_minimal()
+
+p3 = ggplot(df, aes(x = peso, y = pulsacao, color = habitof)) +
+  geom_jitter() +
+  labs(x = "Peso", y = "Pulsação", color = "Hábito de Fumar") +
+  theme_minimal()
+
+p4 = ggplot(df, aes(x = habitof, y = peso, fill = pulsacao)) +
+  stat_summary(fun.y = mean, geom = "bar", position = "dodge") +
+  labs(x = "Hábito de Fumar", y = "Peso Médio", fill = "Pulsação") +
+  theme_minimal()
+
+grid.arrange(p1, p2, p3, p4, ncol = 2)
+
+```
+
+Avaliando conjuntamente, vemos que temos uma contagem maior de indivíduos com pulsação normal do que com pulsação alta, mas começa a aparecer uma relação entre um maior peso e hábito de fumo em relação a pulsação. O peso médio dos indivíduos com hábito de fumar é ligeiramente maior, tanto para os com alta pulsação quanto para os com baixa pulsação.
+
+## Modelagem
+
+Como temos uma variável resposta binária, podemos ajustar um MLG Bernoulli  para explicar a pulsação pelas covariáveis candidatas peso e hábito de fumar
+
+### MLG Binomial com função de ligação Probit
+
+Uma das possíveis funções de ligação para o modelo binomial é a ligação probit, que ainda resguarda alguma interpretação, mas não tão boa quanto a interpretação da função de ligação logit.
+
+```{r, echo=FALSE,cache=TRUE}
+fit1 <- glm(pulsacao ~ peso + habitof, family=binomial(link = "probit"))
+par = summary(fit1)
+kable(round(par[["coefficients"]],4))
+```
+
+```{r,include=FALSE,cache=TRUE}
+stepAIC(fit1) 
+```
+
+Observando os p-valores marginais dos parâmetros, notamos que ambas as covariáveis são significativas sob $\alpha=0,05$, e o intercepto somente é significativo sob $\alpha=0,10$.
+O procedimento stepAIC recomenda a observação dos p-valores marginais, isto é, manter o modelo saturado.
+
+```{r, echo=FALSE,results='hide',fig.keep='all',cache=TRUE}
+set.seed(150167636)
+envelope(fit1, rep=50, conf=0.95, type="quantile")
+```
+
+O gráfico dos resíduos quantílicos com envelope simulado mostra que existem valores próximos da borda do envelope, mas num geral não existe um grande afastamento da distribuição assintótica, sem algum desvio grave perceptível.
+
+#### Diagnósticos
+
+Pontos de alacanca, Pontos influentes (Distância de Cook), Resíduos X Índice, Resíduos X Ajustado.
+
+```{r, echo=FALSE,fig.height=5, fig.width=5,cache=TRUE}
+fit.model = fit1
+X <- model.matrix(fit.model)
+n <- nrow(X)
+p <- ncol(X)
+w <- fit.model$weights
+W <- diag(w)
+H <- solve(t(X)%*%W%*%X)
+H <- sqrt(W)%*%X%*%H%*%t(X)%*%sqrt(W)
+h <- diag(H)
+ts <- resid(fit.model,type="pearson")/sqrt(1-h)
+td <- resid(fit.model,type="deviance")/sqrt(1-h)
+di <- (h/(1-h))*(ts^2)
+a <- max(td)
+b <- min(td)
+par(mfrow=c(2,2))
+plot(fitted(fit.model),h,xlab="", 
+ylab="", pch=16)
+
+plot(di,xlab="", ylab="",pch=16)
+
+plot(td,xlab="", ylab="",
+ylim=c(b-1,a+1), pch=16)
+abline(2,0,lty=2)
+abline(-2,0,lty=2)
+
+plot(fitted(fit.model), td,xlab="", 
+ylab="", pch=16)
+
+par(mfrow=c(1,1))
+```
+
+Observando superficialmente os gráficos de diagnóstico do modelo, não existem grandes afastamentos das suposições, nem grandes pontos de alavancagem ou influência, logo este é um modelo aparentemente adequado para estes dados.
+
+### MLG Binomial com função de ligação complemento log-log
+
+```{r, echo=FALSE,cache=TRUE}
+fit1 <- glm(pulsacao ~ peso + habitof, family=binomial(link = "cloglog"))
+par = summary(fit1)
+kable(round(par[["coefficients"]],4))
+```
+
+```{r,include=FALSE,cache=TRUE}
+stepAIC(fit1) 
+```
+
+Observando os p-valores marginais dos parâmetros, notamos que apenas a covariável hábito de fumar é significativa sob $\alpha=0,05$, sendo o intercepto e o peso somente significativos sob $\alpha=0,10$.
+O procedimento stepAIC recomenda manter o modelo saturado para melhor explicabilidade.
+
+```{r, echo=FALSE,results='hide',fig.keep='all',cache=TRUE}
+set.seed(150167636)
+envelope(fit1, rep=50, conf=0.95, type="quantile")
+```
+
+O gráfico dos resíduos quantílicos com envelope simulado mostra que existem valores próximos da borda do envelope, mas num geral não existe um grande afastamento da distribuição assintótica, sem algum desvio grave perceptível.
+
+#### Diagnósticos
+
+Pontos de alacanca, Pontos influentes (Distância de Cook), Resíduos X Índice, Resíduos X Ajustado.
+
+```{r, echo=FALSE, fig.height=5, fig.width=5,cache=TRUE}
+fit.model = fit1
+X <- model.matrix(fit.model)
+n <- nrow(X)
+p <- ncol(X)
+w <- fit.model$weights
+W <- diag(w)
+H <- solve(t(X)%*%W%*%X)
+H <- sqrt(W)%*%X%*%H%*%t(X)%*%sqrt(W)
+h <- diag(H)
+ts <- resid(fit.model,type="pearson")/sqrt(1-h)
+td <- resid(fit.model,type="deviance")/sqrt(1-h)
+di <- (h/(1-h))*(ts^2)
+a <- max(td)
+b <- min(td)
+par(mfrow=c(2,2))
+plot(fitted(fit.model),h,xlab="", 
+ylab="", pch=16)
+
+plot(di,xlab="", ylab="",pch=16)
+
+plot(td,xlab="", ylab="",
+ylim=c(b-1,a+1), pch=16)
+abline(2,0,lty=2)
+abline(-2,0,lty=2)
+
+plot(fitted(fit.model), td,xlab="", 
+ylab="", pch=16)
+
+par(mfrow=c(1,1))
+```
+
+Observando superficialmente os gráficos de diagnóstico do modelo, não existem grandes afastamentos das suposições. Existem alguns pontos com indício de alavancagem e influência, ainda que sob uma magnitude baixa. Caso este modelo fosse escolhido, o ideal seria remover estes pontos e refazer o ajuste para verificar novamente os gráficos, porém irei seguir testando outras funções de ligação ao invés.
+
+### MLG Binomial com função de ligação Cauchy
+
+```{r, echo=FALSE,cache=TRUE}
+fit1 <- glm(pulsacao ~ peso + habitof, family=binomial(link = "cauchit"))
+par = summary(fit1)
+kable(round(par[["coefficients"]],4))
+```
+
+```{r,include=FALSE,cache=TRUE}
+stepAIC(fit1) 
+```
+
+Observando os p-valores marginais dos parâmetros, notamos que apenas a covariável hábito de fumar é significativa sob $\alpha=0,05$, o peso somente significativo sob $\alpha=0,10$. O intercepto não é mais significativo neste modelo nem para $\alpha=0,10$.
+O procedimento stepAIC recomenda manter o modelo saturado para melhor explicabilidade.
+
+```{r, echo=FALSE,results='hide',fig.keep='all',cache=TRUE}
+set.seed(150167636)
+envelope(fit1, rep=50, conf=0.95, type="quantile")
+```
+
+O gráfico dos resíduos quantílicos com envelope simulado mostra que existem valores próximos da borda do envelope, mas num geral não existe um grande afastamento da distribuição assintótica, sem algum desvio grave perceptível.
+
+#### Diagnósticos
+
+Pontos de alacanca, Pontos influentes (Distância de Cook), Resíduos X Índice, Resíduos X Ajustado.
+
+```{r, echo=FALSE, fig.height=5, fig.width=5,cache=TRUE}
+fit.model = fit1
+X <- model.matrix(fit.model)
+n <- nrow(X)
+p <- ncol(X)
+w <- fit.model$weights
+W <- diag(w)
+H <- solve(t(X)%*%W%*%X)
+H <- sqrt(W)%*%X%*%H%*%t(X)%*%sqrt(W)
+h <- diag(H)
+ts <- resid(fit.model,type="pearson")/sqrt(1-h)
+td <- resid(fit.model,type="deviance")/sqrt(1-h)
+di <- (h/(1-h))*(ts^2)
+a <- max(td)
+b <- min(td)
+par(mfrow=c(2,2))
+plot(fitted(fit.model),h,xlab="", 
+ylab="", pch=16)
+
+plot(di,xlab="", ylab="",pch=16)
+
+plot(td,xlab="", ylab="",
+ylim=c(b-1,a+1), pch=16)
+abline(2,0,lty=2)
+abline(-2,0,lty=2)
+
+plot(fitted(fit.model), td,xlab="", 
+ylab="", pch=16)
+
+par(mfrow=c(1,1))
+```
+
+Observando superficialmente os gráficos de diagnóstico do modelo, não existem grandes afastamentos das suposições. Existem um ponto com indício de alavancagem, e dois ou três pontos com indício de influência, ainda que sob uma magnitude baixa. Caso este modelo fosse escolhido, o ideal seria remover estes pontos e refazer o ajuste para verificar novamente os gráficos, porém irei seguir testando outras funções de ligação ao invés.
+
+### Modelo logístico (binomial com função de ligação logit)
+
+Um modelo que sempre devemos testar neste tipo de situação é o modelo logístico, visto que é adequado para dados com 2 fatores possíveis, e seus parâmetros são passíveis de serem interpretados de forma elegante.
+
+```{r, echo=FALSE,cache=TRUE,cache=TRUE}
+fit1 <- glm(pulsacao ~ peso + habitof, family=binomial(link = "logit"))
+par = summary(fit1)
+kable(round(par[["coefficients"]],4))
+```
+
+```{r,include=FALSE,cache=TRUE}
+stepAIC(fit1) 
+```
+
+Observando os p-valores marginais dos parâmetros, notamos que ambas as covariáveis são significativas sob $\alpha=0,05$, e o intercepto somente é significativo sob $\alpha=0,10$.
+O procedimento stepAIC recomenda a observação dos p-valores marginais, isto é, manter o modelo saturado.
+
+```{r, echo=FALSE,results='hide',fig.keep='all',cache=TRUE}
+set.seed(150167636)
+envelope(fit1, rep=50, conf=0.95, type="quantile")
+```
+
+O gráfico dos resíduos quantílicos com envelope simulado mostra que existem valores próximos da borda do envelope, mas num geral não existe um grande afastamento da distribuição assintótica, sem algum desvio grave perceptível.
+
+#### Diagnósticos
+
+##### Pontos de alacanca
+
+```{r, echo=FALSE,cache=TRUE}
+fit.model = fit1
+X <- model.matrix(fit.model)
+n <- nrow(X)
+p <- ncol(X)
+w <- fit.model$weights
+W <- diag(w)
+H <- solve(t(X)%*%W%*%X)
+H <- sqrt(W)%*%X%*%H%*%t(X)%*%sqrt(W)
+h <- diag(H)
+ts <- resid(fit.model,type="pearson")/sqrt(1-h)
+td <- resid(fit.model,type="deviance")/sqrt(1-h)
+di <- (h/(1-h))*(ts^2)
+a <- max(td)
+b <- min(td)
+plot(fitted(fit.model),h,xlab="Valor Ajustado", 
+ylab="Medida h", pch=16)
+```
+
+Avaliando o gráfico de alavancagem, existem dois ou três pontos que se destacam um pouco em relação aos demais, mas em escala de magnitude não aparentam estar distorcendo muito as estimativas do modelo, portanto não julgo necessária a remoção destes.
+
+##### Pontos influentes (Distância de Cook)
+
+```{r, echo=FALSE,cache=TRUE}
+plot(di,xlab="Índice", ylab="Distância de Cook",pch=16)
+```
+
+Analisando o gráfico de influência pela distância de Cook, a interpretação que farei será análoga a anterior, ou seja, existem alguns pontos que se destacam levemente em relação aos demais, mas como em escala de magnitude não aparentam ser muito aberrantes, acredito que não seja necessário fazer a remoção destes pontos para o ajuste.
+
+##### Resíduos X Índice
+
+```{r, echo=FALSE,cache=TRUE}
+plot(td,xlab="Índice", ylab="Resíduo Componente do Desvio",
+ylim=c(b-1,a+1), pch=16)
+abline(2,0,lty=2)
+abline(-2,0,lty=2)
+```
+
+Claramente podemos ver algum tipo de relação de dependência neste gráfico, com as observações próximas ao limite superior provavelmente sendo dos com hábito de fumar, e as próximas do limite inferior referente aos indivíduos sem hábito de fumo em maioria. Ainda assim, aparenta estar "ok" os pressupostos.
+
+##### Resíduos X Ajustado
+
+```{r, echo=FALSE,cache=TRUE}
+plot(fitted(fit.model), td,xlab="Valor Ajustado", 
+ylab="Resíduo Componente do Desvio", pch=16)
+```
+
+O preditor aparenta ter obtido um bom ajuste.
+
+#### Conclusão
+
+Dentre todos os modelos observados, nenhum apresentou grande fuga aos pressupostos, tendo levado a ajustes semelhantes e até parâmetros parecidos em algum sentido. Neste caso, devemos adotar pelo princípio da parcimônia, e aceitar o modelo mais simples e com maior explicabilidade para modelar estes dados, que neste caso é este último modelo apresentado: o logístico. Neste caso, partirmos para interpretação dos coeficientes do modelo
+
+```{r, echo=FALSE,cache=TRUE}
+fit1 <- glm(pulsacao ~ peso + habitof, family=binomial(link = "logit"))
+par = summary(fit1)
+kable(round(par[["coefficients"]],4))
+```
+
+Interpretando os parâmetros significativos a $\alpha=0,05$ deste modelo, o peso e o hábito de fumar, vemos que os indivíduos hábito de fumar tem  $1-exp^{-1.1930} \approx 0,70 \rightarrow 70\%$ mais chance de apresentar pulsação em repouso alta em comparação com indivíduos sem o hábito de fumar, mantendo todo o restante constante. Assim como existe um aumento de $1-exp^{-0.0505} \approx 0,05 \rightarrow 5\%$ na chance do indivíduo apresentar pulsação alta em repouso para cada aumento de 1kg do indivíduo, mantendo todo o restante constante.
+
+Essas conclusões são interessantes, visto que essas relações eram bastante difíceis de observar na análise descritiva exploratória, e somente com a modelagem foi possível ter mais credibilidade nesta interpretação, e na magnitude destas relações.
+
+# Questão 4
+
+```{r, include=FALSE}
+dose1 <- scan("../arquivos/ListaP1/dose1.txt", list(dose1=0, care1=0, carm1=0))
+dose2 <- scan("../arquivos/ListaP1/dose2.txt", list(dose2=0, care2=0, carm2=0))
+dose3 <- scan("../arquivos/ListaP1/dose3.txt", list(dose3=0, care3=0, carm3=0))
+dose = dose1[[1]]
+care = dose1[[2]]
+carm = dose1[[3]]
+dose1 = data.frame(dose,care,carm)
+rm(dose,care,carm)
+
+dose = dose2[[1]]
+care = dose2[[2]]
+carm = dose2[[3]]
+dose2 = data.frame(dose,care,carm)
+rm(dose,care,carm)
+
+dose = dose3[[1]]
+care = dose3[[2]]
+carm = dose3[[3]]
+dose3 = data.frame(dose,care,carm)
+rm(dose,care,carm)
+```
+
+## Dose 1
+
+Neste estudo de caso, iremos investigar um experimento de dose-resposta conduzido para avaliar a influência do extrato vegetal aquoso frio de folhas na morte de um determinado tipo de caramujo utilizando modelagem GLM Binomial com diversas funções de ligação para modelar o status (vivo/morto) de acordo com a dose do extrato aplicada ao caramujo.
+
+```{r, include=FALSE}
+dose1 <- dose1 %>%
+  mutate(vivos = care - carm) %>%
+  dplyr::select(dose, vivos, carm) %>%
+  pivot_longer(cols = c(vivos, carm), names_to = "status", values_to = "count") %>%
+  uncount(count) %>%
+  mutate(status = factor(if_else(status == "vivos", "vivo", "morto"))) %>%
+  dplyr::select(dose, status)
+attach(dose1)
+```
+
+```{r, echo=FALSE}
+kable(table(dose1))
+```
+
+Pela tabela, é fácil observar que o aumento da dose leva a morte dos caramujos. Estamos interessados em quantificar esta relação, portanto, irei testar diversos modelos GLM Binomial e, baseado no critério definido pelo enunciado da questão (envelope), irei interpretar o modelo que for o melhor ao final.
+
+### Modelo 1: Modelo logístico (binomial com função de ligação logit)
+
+```{r, echo=FALSE,cache=TRUE}
+fit1 <- glm(status ~ dose, family=binomial(link = "logit"))
+par = summary(fit1)
+kable(round(par[["coefficients"]],4))
+```
+
+```{r, echo=FALSE,results='hide',fig.keep='all',cache=TRUE}
+set.seed(150167636)
+envelope(fit1, rep=50, conf=0.95, type="quantile")
+```
+
+### Modelo 2: MLG Binomial com função de ligação Probit
+
+```{r, echo=FALSE,cache=TRUE}
+fit1 <- glm(status ~ dose, family=binomial(link = "probit"))
+par = summary(fit1)
+kable(round(par[["coefficients"]],4))
+```
+
+```{r, echo=FALSE,results='hide',fig.keep='all',cache=TRUE}
+set.seed(150167636)
+envelope(fit1, rep=50, conf=0.95, type="quantile")
+```
+
+### Modelo 3: MLG Binomial com função de ligação complemento log-log
+
+```{r, echo=FALSE,cache=TRUE}
+fit1 <- glm(status ~ dose, family=binomial(link = "cloglog"))
+par = summary(fit1)
+kable(round(par[["coefficients"]],4))
+```
+
+```{r, echo=FALSE,results='hide',fig.keep='all',cache=TRUE}
+set.seed(150167636)
+envelope(fit1, rep=50, conf=0.95, type="quantile")
+```
+
+### Modelo 4: MLG Binomial com função de ligação Cauchy
+
+```{r, echo=FALSE,cache=TRUE}
+fit1 <- glm(status ~ dose, family=binomial(link = "cauchit"))
+par = summary(fit1)
+kable(round(par[["coefficients"]],4))
+```
+
+```{r, echo=FALSE,results='hide',fig.keep='all',cache=TRUE}
+set.seed(150167636)
+envelope(fit1, rep=50, conf=0.95, type="quantile")
+```
+
+### Escolha do modelo e interpretação
+
+Pelos gráficos e tabelas acima, vimos que para todas as funções de ligação houve forte significância da dose em explicar a morte do caramujo. Observando os envelopes simulados, qualquer um dos modelos poderia ser utilizado, visto que todos estão aderentes ao pressuposto. Desta forma, a escolha será pelo mais parcimonioso e de melhor interpretabilidade, que é o modelo GLM Binomial com função de ligação logito — O modelo logístico.
+
+```{r, echo=FALSE,cache=TRUE}
+fit1 <- glm(status ~ dose, family=binomial(link = "logit"))
+par = summary(fit1)
+kable(round(par[["coefficients"]],4))
+```
+
+Para este modelo, observamos que para cada aumento em 1 unidade da dose, aumenta em $1-exp^{-0.1571} \approx 0,1454 \rightarrow 14,54\%$ a chance de morte do caramujo. 
+
+```{r, include=FALSE}
+intercept <- 3.8067
+coef_dose <- -0.1571
+round((intercept / -coef_dose),2)
+```
+
+Podemos também obter a estimativa da dose letal DL50, podendo ser calculada neste caso por $DL50 = \frac{\beta_0}{\beta_1} = \frac{3,8067}{-0,1571} \approx 24,23$. Logo, esta é a dose letal estimada que mata 50% dos caramujos!
+
+## Dose 2
+
+Neste estudo de caso, iremos investigar um experimento de dose-resposta conduzido para avaliar a influência do extrato vegetal aquoso frio de frutos na morte de um determinado tipo de caramujo utilizando modelagem GLM Binomial com diversas funções de ligação para modelar o status (vivo/morto) de acordo com a dose do extrato aplicada ao caramujo.
+
+```{r, include=FALSE}
+dose2 <- dose2 %>%
+  mutate(vivos = care - carm) %>%
+  dplyr::select(dose, vivos, carm) %>%
+  pivot_longer(cols = c(vivos, carm), names_to = "status", values_to = "count") %>%
+  uncount(count) %>%
+  mutate(status = factor(if_else(status == "vivos", "vivo", "morto"))) %>%
+  dplyr::select(dose, status)
+attach(dose2)
+```
+
+```{r, echo=FALSE}
+kable(table(dose2))
+```
+
+Pela tabela, é fácil observar que o aumento da dose leva a morte dos caramujos. Estamos interessados em quantificar esta relação, portanto, irei testar diversos modelos GLM Binomial e, baseado no critério definido pelo enunciado da questão (envelope), irei interpretar o modelo que for o melhor ao final.
+
+### Modelo 1: Modelo logístico (binomial com função de ligação logit)
+
+```{r, echo=FALSE,cache=TRUE}
+fit1 <- glm(status ~ dose, family=binomial(link = "logit"))
+par = summary(fit1)
+kable(round(par[["coefficients"]],4))
+```
+
+```{r, echo=FALSE,results='hide',fig.keep='all',cache=TRUE}
+set.seed(150167636)
+envelope(fit1, rep=50, conf=0.95, type="quantile")
+```
+
+### Modelo 2: MLG Binomial com função de ligação Probit
+
+```{r, echo=FALSE,cache=TRUE}
+fit1 <- glm(status ~ dose, family=binomial(link = "probit"))
+par = summary(fit1)
+kable(round(par[["coefficients"]],4))
+```
+
+```{r, echo=FALSE,results='hide',fig.keep='all',cache=TRUE}
+set.seed(150167636)
+envelope(fit1, rep=50, conf=0.95, type="quantile")
+```
+
+### Modelo 3: MLG Binomial com função de ligação complemento log-log
+
+```{r, echo=FALSE,cache=TRUE}
+fit1 <- glm(status ~ dose, family=binomial(link = "cloglog"))
+par = summary(fit1)
+kable(round(par[["coefficients"]],4))
+```
+
+```{r, echo=FALSE,results='hide',fig.keep='all',cache=TRUE}
+set.seed(150167636)
+envelope(fit1, rep=50, conf=0.95, type="quantile")
+```
+
+### Modelo 4: MLG Binomial com função de ligação Cauchy
+
+```{r, echo=FALSE,cache=TRUE}
+fit1 <- glm(status ~ dose, family=binomial(link = "cauchit"))
+par = summary(fit1)
+kable(round(par[["coefficients"]],4))
+```
+
+```{r, echo=FALSE,results='hide',fig.keep='all',cache=TRUE}
+set.seed(150167636)
+envelope(fit1, rep=50, conf=0.95, type="quantile")
+```
+
+### Escolha do modelo e interpretação
+
+Pelos gráficos e tabelas acima, vimos que para todas as funções de ligação houve forte significância da dose em explicar a morte do caramujo. Observando os envelopes simulados, qualquer um dos modelos poderia ser utilizado, visto que todos estão aderentes ao pressuposto. Desta forma, a escolha será pelo mais parcimonioso e de melhor interpretabilidade, que é o modelo GLM Binomial com função de ligação logito — O modelo logístico.
+
+```{r, echo=FALSE,cache=TRUE}
+fit1 <- glm(status ~ dose, data = dose2, family=binomial(link = "logit"))
+par = summary(fit1)
+kable(round(par[["coefficients"]],4))
+```
+
+Para este modelo, observamos que para cada aumento em 1 unidade da dose, aumenta em $1-exp^{-0.0265} \approx 0,0261 \rightarrow 2,61\%$ a chance de morte do caramujo. 
+
+```{r, include=FALSE}
+intercept <- 5.5462
+coef_dose <- -0.0265
+round((intercept / -coef_dose),2)
+```
+
+Podemos também obter a estimativa da dose letal DL50, podendo ser calculada neste caso por $DL50 = \frac{\beta_0}{\beta_1} = \frac{5,5462}{-0,0265} \approx 209,29$. Logo, esta é a dose letal estimada que mata 50% dos caramujos!
+
+## Dose 3
+
+Neste estudo de caso, iremos investigar um experimento de dose-resposta conduzido para avaliar a influência de um extrato químico na morte de um determinado tipo de caramujo utilizando modelagem GLM Binomial com diversas funções de ligação para modelar o status (vivo/morto) de acordo com a dose do extrato aplicada ao caramujo.
+
+```{r, include=FALSE}
+dose3 <- dose3 %>%
+  mutate(vivos = care - carm) %>%
+  dplyr::select(dose, vivos, carm) %>%
+  pivot_longer(cols = c(vivos, carm), names_to = "status", values_to = "count") %>%
+  uncount(count) %>%
+  mutate(status = factor(if_else(status == "vivos", "vivo", "morto"))) %>%
+  dplyr::select(dose, status)
+attach(dose3)
+```
+
+```{r, echo=FALSE}
+kable(table(dose3))
+```
+
+Pela tabela, é fácil observar que o aumento da dose leva a morte dos caramujos. Estamos interessados em quantificar esta relação, portanto, irei testar diversos modelos GLM Binomial e, baseado no critério definido pelo enunciado da questão (envelope), irei interpretar o modelo que for o melhor ao final.
+
+### Modelo 1: Modelo logístico (binomial com função de ligação logit)
+
+```{r, echo=FALSE,cache=TRUE}
+fit1 <- glm(status ~ dose, family=binomial(link = "logit"))
+par = summary(fit1)
+kable(round(par[["coefficients"]],4))
+```
+
+```{r, echo=FALSE,results='hide',fig.keep='all',cache=TRUE}
+set.seed(150167636)
+envelope(fit1, rep=50, conf=0.95, type="quantile")
+```
+
+### Modelo 2: MLG Binomial com função de ligação Probit
+
+```{r, echo=FALSE,cache=TRUE}
+fit1 <- glm(status ~ dose, family=binomial(link = "probit"))
+par = summary(fit1)
+kable(round(par[["coefficients"]],4))
+```
+
+```{r, echo=FALSE,results='hide',fig.keep='all',cache=TRUE}
+set.seed(150167636)
+envelope(fit1, rep=50, conf=0.95, type="quantile")
+```
+
+### Modelo 3: MLG Binomial com função de ligação complemento log-log
+
+```{r, echo=FALSE,cache=TRUE}
+fit1 <- glm(status ~ dose, family=binomial(link = "cloglog"))
+par = summary(fit1)
+kable(round(par[["coefficients"]],4))
+```
+
+```{r, echo=FALSE,results='hide',fig.keep='all',cache=TRUE}
+set.seed(150167636)
+envelope(fit1, rep=50, conf=0.95, type="quantile")
+```
+
+### Modelo 4: MLG Binomial com função de ligação Cauchy
+
+```{r, echo=FALSE,cache=TRUE}
+fit1 <- glm(status ~ dose, family=binomial(link = "cauchit"))
+par = summary(fit1)
+kable(round(par[["coefficients"]],4))
+```
+
+```{r, echo=FALSE,results='hide',fig.keep='all',cache=TRUE}
+set.seed(150167636)
+envelope(fit1, rep=50, conf=0.95, type="quantile")
+```
+
+### Escolha do modelo e interpretação
+
+Pelos gráficos e tabelas acima, vimos que para todas as funções de ligação houve forte significância da dose em explicar a morte do caramujo. Observando os envelopes simulados, qualquer um dos modelos poderia ser utilizado, visto que todos estão aderentes ao pressuposto. Desta forma, a escolha será pelo mais parcimonioso e de melhor interpretabilidade, que é o modelo GLM Binomial com função de ligação logito — O modelo logístico.
+
+```{r, echo=FALSE,cache=TRUE}
+fit1 <- glm(status ~ dose, family=binomial(link = "logit"))
+par = summary(fit1)
+kable(round(par[["coefficients"]],4))
+```
+
+Para este modelo, observamos que para cada aumento em 1 unidade da dose, aumenta em $1-exp^{-71.0948} = 1 \rightarrow 100\%$ a chance de morte do caramujo. 
+Para este modelo, a magnitude da dose necessária para matar o caramujo é muito menor que para as soluções vegetais, visto que no exemplo a maior dose observada é 0,05
+
+```{r, include=FALSE}
+intercept <- 2.601569
+coef_dose <- -71.094836
+round((intercept / -coef_dose),2)
+```
+
+Podemos também obter a estimativa da dose letal DL50, podendo ser calculada neste caso por $DL50 = \frac{\beta_0}{\beta_1} = \frac{2,601569}{-71,094836} = 0,04$. Logo, esta é a dose letal estimada que mata 50% dos caramujos!
+
+# Referências
+
+Materiais de aula — Modelos lineares generalizados. UnB, 2º/2024. Prof.ª Dr.ª Terezinha Kessia de Assis Ribeiro.
+
+https://www.ime.usp.br/~giapaula/textoregressao.htm
+
