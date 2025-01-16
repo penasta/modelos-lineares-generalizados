@@ -1846,3 +1846,4 @@ Materiais de aula — Modelos lineares generalizados. UnB, 2º/2024. Prof.ª Dr.
 
 https://www.ime.usp.br/~giapaula/textoregressao.htm
 
+Obs: Lista produzida utilizando R e Quarto documents. Os códigos se encontram disponíveis em https://github.com/penasta/modelos-lineares-generalizados/blob/main/rdocs/lista1.qmd
