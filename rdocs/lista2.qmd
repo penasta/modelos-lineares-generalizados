@@ -1,0 +1,627 @@
+---
+title: ""
+format: 
+  pdf:
+    number-sections: false
+    mainfont: Arial
+    include-in-header:
+      text: |
+        \setcounter{section}{-0}
+papersize: a4
+mathfont: Arial
+---
+```{=html}
+<style>
+.center {
+   text-align: center;
+}
+</style>
+```
+::: {.center data-latex=""}
+![](logo-UnB.eps){width=400} \
+\
+DEPARTAMENTO DE ESTATÍSTICA \
+:::
+```{r, results='asis', echo=FALSE}
+data_atual <- format(Sys.time(), '%d de %B de %Y')
+cat('\\begin{center}', '\n')
+cat(data_atual, '\n')
+cat('\\end{center}', '\n')
+```
+::: {.center data-latex=""}
+**Lista 2** \
+\
+Prof. Drª. Terezinha Kessia de Assis Ribeiro \
+\
+Modelos Lineares Generalizados \
+\
+Aluno: Bruno Gondim Toledo | Matrícula: 15/0167636
+\
+:::
+
+```{r setup, include=FALSE}
+# Pacotes ----
+if(!require(pacman))install.packages("pacman")
+p_load(MASS,car,tidyverse,gamlss,readr,janitor,
+       skimr,corrplot,knitr,moments,lmtest,kableExtra)
+```
+
+```{r, include=FALSE}
+# Dados ----
+df <- read_csv("../dados/Refrigerator.csv")
+df = clean_names(df)
+df = df %>% select(price,rsize,fsize,ecost,shelves,features)
+colnames(df) = c("preco","tamanho_refrigerador","tamanho_freezer","custo_op","prateleiras","recursos")
+attach(df)
+```
+
+# a)
+
+Neste problema, iremos estudar a relação do preço de refrigeradores com características pertinentes destes eletrodomésticos. Nossa variável resposta, o preço do refrigerador (preco) será explicada por características do refrigerador, sendo elas: o tamanho do refrigerador em pés cúbicos (tamanho_refrigerador), o tamanho do compartimento do freezer (tamanho_freezer), a quantia média de dinheiro gasta por ano para operar o refrigerador (custo_op) e o número de recursos do refrigerador (recursos).
+
+```{r,echo=FALSE}
+df %>% 
+  gather() %>%
+  ggplot(aes(value)) +
+  geom_histogram(bins = 30) +
+  facet_wrap(~key, scales = 'free_x') +
+  labs(x = '', y = '', title = 'Histogramas das Variáveis') +
+  theme_minimal()
+```
+
+Observando os histogramas das variáveis, podemos observar que, naturalmente, todas elas são quantitativas positivas, algumas sendo contagens e outras de perfil mais contínuo. Deste gráfico, podemos dizer que possivelmente iremos necessitar de uma distribuição com suporte nos positivos, $Y \sim (0,\infty].$
+
+```{r,echo=FALSE}
+df %>% 
+  gather(key = "variable", value = "value") %>%
+  ggplot(aes(y = value,x=1)) +
+  geom_violin(fill="lightblue",alpha = .5) +
+  geom_boxplot(alpha = .5) +
+  facet_wrap(~variable, scales = 'free_y') +
+  labs(x = '', y = '', title = 'Boxplot das Variáveis') +
+  theme_minimal()
+```
+
+Os boxplots sobrepostos aos violinos são interessantes para visualizar nossas observações. Nosso conjunto de dados é pequeno (37 observações), e em geral as variáveis apresentam assimetria à direita, sendo possível também observar alguns pontos candidatos a outlier no conjunto.
+
+```{r,echo=FALSE}
+table = skim(df)[,c(2,5:11)]
+colnames(table) = c("Variável","Média","D.P.","Min.","q25","Mediana","q75","Max.","Hist.")
+table$`Média` = round(table$`Média`,2)
+table$`D.P.` = round(table$`D.P.`,2)
+
+kable(table)
+```
+
+Pela Tabela acima, podemos observar quantitativamente as relações percebidas no gráfico anterior. A variável preço por exemplo, apresenta um alto desvio padrão comparada as demais variáveis. Isto se dá também por uma questão de escala, mas podemos notar que o valor máximo é quase o dobro dos valores presentes até o terceiro quartil. Demais variáveis apresentam média e mediana próximas, também sendo possível observar possíveis valores de máximo discrepantes para as covariáveis recursos, custo de operação e prateleiras.
+
+```{r,echo=FALSE}
+min = tablemin = min(preco)
+q1 = quantile(preco,.25)
+mediana = median(preco)
+media = round(mean(preco),2)
+q3 = quantile(preco, .75)
+max = max(preco)
+assimetria = round(skewness(preco),2)
+curtose = round(kurtosis(preco),2)
+medidas = c(min,q1,mediana,media,q3,max,assimetria,curtose)
+names(medidas) = c("Mín.","1º Quartil","Mediana","Média","3º Quartil","Máx.","Assimetria","Curtose")
+kable(t(medidas))
+```
+
+Analisando com maior atenção a variável preço pela Tabela acima, notamos que o cieficiente de curtose é bastante elevado, apresentando um excesso de curtose de 5,86; indicando um possível problema com a modelagem gaussiana.
+
+```{r,echo=FALSE,fig.dim = c(8, 6)}
+corrplot(cor(data.frame(preco, tamanho_refrigerador, tamanho_freezer,custo_op,prateleiras,recursos)),
+         method="circle",
+         type = "lower",
+         addCoef.col = "grey")
+```
+
+É bastante pertinente calcular correlações antes de realizar uma modelagem de regressão. Pelo gráfico acima, podemos observar que as covariáveis tamanho do freezer, custo de operação, número de prateleiras e recursos do refrigerador tem correlação positiva com a variável preço. A covariável tamanho do refrigerador apresenta uma baixíssima correlação negativa com o preço do refrigerador (o que é um pouco estranho). Além disso, notamos que as covariáveis custo de operação e tamanho do freezer apresentam forte correlação positiva, indicando um possível problema de multicolinearidade se ambas as variáveis forem inseridas no modelo. As covariáveis tamanho do freezer e quantidade de recursos também apresentam uma correlação positiva considerável, e também devem ser avaliadas com cautela.
+
+Portanto, de todo o observado, notamos que possivelmente as covariáveis tamanho do freezer, custo de operação, número de prateleiras e recursos do refrigerador apresentam tendência de impacto positivo no preço do refrigerador, numa primeira análise simplificada. Estas relações serão melhor quantificadas nas análises seguintes, isto é, na modelagem regressiva.
+
+# b) 
+
+Farei a primeira modelagem como manda a práxis, tentando ajustar um modelo gaussiano homocedástico saturado.
+
+## Estimativas do modelo
+
+```{r,echo=FALSE}
+fit1_normal = lm(preco ~.,
+                 data=df
+                 )
+smr = summary(fit1_normal)
+coef = as.data.frame(smr[["coefficients"]])
+colnames(coef)[1:3] = c("Estimativa","Erro padrão","Valor t")
+coef[,1:3] <- round(coef[, 1:3], 2)
+coef[, 4] <- round(coef[, 4], 3)
+kable(coef)
+```
+
+```{r,include=FALSE}
+stepAIC(fit1_normal)
+```
+
+A Tabela acima mostra as estimativas dos parâmetros produzidas para o modelo gaussiano homocedástico. Foi realizado também o procedimento stepAIC, que indica pela manutenção do modelo saturado.
+
+Observando os resultados, notamos que todos os coeficientes foram marginalmente significativos sob (quase) qualquer nível de significânia. O modelo apresentou também valor R² = 0,838 e R² ajustado = 0,812; e estes resultados sob uma interpretação ingênua sugeririam que já temos um modelo excelente que explica bem os dados. Entretanto, é importante observar com cautela os resultados deste modelo. Notamos que a covariável custo de operação apresentou uma estimativa negativa, o que não faz sentido se comparado ao gráfico de correlações produzido na análise descritiva. Possivelmente, como esta covariável tem correlação alta com a covariável tamanho do freezer, isto esteja atrapalhando as estimativas do modelo. O intercepto negativo numa alta escala também pode ser problemático, visto que não faz sentido para este dado um preço negativo: ele precisa ser estritamente positivo! E para um novo dado não presente neste conjunto, uma combinação de covariáveis poderia levar a modelagem do preço desta observação como sendo um preço negativo, o que não faria sentido algum. Além disso, a covariável tamanho do refrigerador, que na análise descritiva também aparecia não correlacionada/fracamente negativamente correlacionada apresenta uma significância altíssima, bem como um alto valor positivo na estimativa do parâmetro.
+
+Para este modelo, mantido constante todos os outros coeficientes, o aumento de um pé cúbico do refrigerador aumentaria a média do preço em 76,5 U.M. Analogamente, o aumento de uma unidade no tamanho do freezer aumenta em 137,38 U.M. a média do preço. O aumento de 1 U.M. no custo de operação diminuiria em 7 U.M. o preço médio do refrigerador. O acréscimo de 1 prateleira aumenta em 37,94 U.M. o preço médio do refrigerador. O acréscimo de 1 recurso no refrigerador aumenta seu preço médio em 23,76 U.M.
+
+# c)
+
+Podemos também realizar algumas etapas de diagnóstico para observar outros possíveis problemas ou qualidades neste modelo.
+
+```{r, echo=FALSE,results='hide',fig.keep='all', cache=TRUE}
+fit.model <- fit1_normal
+sw = shapiro.test(fit.model$residuals)
+glmtoolbox::envelope(fit.model, rep=100, conf=0.95,main = paste0("P-valor do teste de Shapiro-Wilk: ",round(sw$p.value,3)),xlab="",ylab="")
+```
+
+Analisando os resíduos sob envelope simulado, notamos que todos estão contidos nos limites do envelope simulado. Além disso, quanto ao pressuposto de normalidade dos resíduos, o modelo parece atender.
+
+```{r, echo=FALSE, cache=TRUE}
+bp = bptest(fit.model)
+plot(fitted(fit.model), resid(fit.model),
+     main = paste0("P-valor do teste de Breusch-Pagan studentizado: ", round(bp$p.value,3)),xlab="",ylab=""
+     )
+```
+
+Observando o gráfico dos resíduos contra os valores ajustados, notamos que o pressuposto de homocedasticidade aparenta ser respeitado, porém este resultado deve ser observado com cautela, visto a quantidade reduzida de observações neste conjunto de dados, o que pode prejudicar o poder do teste de Breusch-Pagan, bem como a interpretação visual.
+
+```{r,echo=F,fig.height=5, fig.width=5}
+#------------------------------------------------------------#
+X <- model.matrix(fit.model)
+n <- nrow(X)
+p <- ncol(X)
+H <- X%*%solve(t(X)%*%X)%*%t(X)
+h <- diag(H)
+lms <- summary(fit.model)
+s <- lms$sigma
+r <- resid(lms)
+ts <- r/(s*sqrt(1-h))
+di <- (1/p)*(h/(1-h))*(ts^2)
+si <- lm.influence(fit.model)$sigma
+tsi <- r/(si*sqrt(1-h))
+a <- max(tsi)
+b <- min(tsi)
+par(mfrow=c(2,2))
+plot(h,xlab="Índice", ylab="Medida h", pch=16, ylim=c(0,1))
+cut <- 2*p/n
+abline(cut,0,lty=2)
+#identify(h, n=1)
+#title(sub="(a)")
+#
+plot(di,xlab="Índice", ylab="Distância de Cook", pch=16)
+#identify(di, n=2)
+#
+plot(tsi,xlab="Índice", ylab="Resíduo Padronizado",
+ylim=c(b-1,a+1), pch=16)
+abline(2,0,lty=2)
+abline(-2,0,lty=2)
+#identify(tsi, n=1)
+#
+plot(fitted(fit.model),tsi,xlab="Valor Ajustado", 
+ylab="Resíduo Padronizado", ylim=c(b-1,a+1), pch=16)
+abline(2,0,lty=2)
+abline(-2,0,lty=2)
+#identify(fitted(fit.model),tsi, n=1)
+par(mfrow=c(1,1))
+#------------------------------------------------------------#
+
+```
+
+Realizando um diagnóstico mais aprofundado, notamos que existem possíveis pontos de alavancagem no modelo, sendo eles os pontos 6,33,36 e 37. Voltando ao conjunto de dados, notamos que o ponto 6 apresenta uma grande quantidade de recursos no refrigerador: 10 recursos, enquanto as demais variáveis estão próximas à média. O ponto 33 se destaca como o ponto de maior preço (1200 U.M.), enquanto os pontos 36 e 37 também apresentam valor alto no preço (840 e 880 U.M., respectivamente), indicando serem possíveis outliers.
+
+Analisando o gráfico de influência pelas distâncias de Cook, notamos que existe um ponto significativamente aberrante ante aos demais, sendo ele justamente o ponto 33 — o de maior preço (1200 U.M.). Isso praticamente o define como sendo um ponto aberrante, visto ser detectado em ambas as análises. Caso a intenção fosse manter o modelo normal heterocedástico, o ideal seria remover este ponto e observar o ajuste sem ele.
+
+Os outros dois gráficos indicam um possível problema de sobredispersão, ainda que um tanto difícil de visualizar pela pouca quantidade de pontos, mas aparenta haver uma leve tendência de aumento da dispersão. Indicam também uma aparente independência, o que não parece ser realmente o maior problema deste modelo.
+
+Portanto, vemos que não aparentam haver afastamentos sérios das suposições do modelo normal homocedástico para este modelo. Ainda assim, considerando os coeficientes observados, elesapresentam um padrão de problema interpretativo, visto que as interpretações são conflituosas com o observado na análise descritiva, e seria esperado alguns resultados diferentes para este modelo. Além disso, notamos que existem problemas de valores influentes e pontos aberrantes. Também existe um problema conceitual, quanto a natureza da variável resposta, que é na prática estritamente posisitiva, ante a modelagem gaussiana que sempre retornará resultados contidos nos reais.
+
+Concluindo a avaliação deste modelo, podemos dizer que a dependender do problema específico, este modelo até poderia ser utilizado. Se considerarmos que esta é uma boa amostra, representativa da população, e não seja do interesse do possuidor deste modelo interpretar a rigor os parâmetros deste modelo, considerando também uma baixa existência de outliers na população — visto que este modelo apresenta problemas de robustez — isto é, se quiséssemos por exemplo embarcar este modelo numa aplicação leve, onde valeria mais uma previsão aproximada, com um modelo simples e de baixa complexidade computacional — como por exemplo em um chip, ou rodando no backend de um aplicativo web como indicador para uma propaganda para um perfil de consumidor, por exemplo — não haveria um grande problema preditivo para a maioria dos casos em média.
+Entretanto, o objetivo aqui é justamente explorar uma série de distribuições que poderiam se ajustar melhor a estes dados, levando mão também da possibilidade de modelar a dispersão destes dados e não só a média, portanto não faria sentido analisar todas as possibilidades de melhorar o ajuste normal homocedástico, como por exemplo realizar várias possibilidades de remoção de covariáveis conflituosas de interpretação confusa, bem como a repetição da modelagem com a remoção de pontos aberrantes.
+
+Partiremos então para uma modelagem mais sofisticada, utilizando do pacote *gamlss*
+
+# d)
+
+## MLG Duplo: Modelo normal heterocedástico
+
+Dada as tentativas anteriores com o modelo normal homocedástico, é possível que apenas modelando a precisão conjuntamente, o modelo gaussiano já entregue resultados mais satisfatórios, ainda que as etapas de diagnóstico não tenham indicado uma clara necessidade de modelagem da precisão.
+
+Para isso, será utilizada a ligação canônica para o parâmetro $\mu$ e ligação log para o parâmetro $\sigma^2$.
+
+```{r,echo=FALSE,results='hide',warning=FALSE}
+options(scipen=999)
+
+fit2 = gamlss(preco ~ .,
+              sigma.formula = preco~.,
+              data=df,
+              family=NO2(mu.link="identity",sigma.link = "log"))
+smr = summary(fit2)
+
+coef = as.data.frame(smr)
+colnames(coef)[1:3] = c("Estimativa","Erro padrão","Valor t")
+coef[,1:3] <- round(coef[, 1:3], 2)
+coef[, 4] <- round(coef[, 4], 3)
+
+mu = coef[1:6,]
+sigma = coef[7:12,]
+```
+
+Estimativas para $\mu$
+
+```{r,echo=FALSE}
+kable(mu)
+```
+
+Estimativas para $\sigma^2$
+
+```{r,echo=FALSE}
+kable(sigma)
+```
+
+```{r,include=FALSE}
+stepAIC(fit2)
+```
+
+Notamos que ao modelar conjuntamente o MLG duplo gaussiano, existem parâmetros com significância para a variância, bem como os parâmetros fornecidos para a média também são diferentes do modelo homocedástico. Existem, entretando, covariáveis que marginalmente não estão apresentando significância neste modelo saturado, tanto para $\mu$ quanto para $\sigma^2$. Realizando o procedimento stepAIC e também removendo coeficientes manualmente, chegamos a um modelo com mais parcimônia e significância:
+
+```{r,echo=FALSE,results='hide',warning=FALSE}
+fit3 = gamlss(preco ~ tamanho_refrigerador + tamanho_freezer + custo_op + prateleiras,
+              sigma.formula = preco ~ tamanho_refrigerador + prateleiras + recursos ,
+              data = df,
+              family = NO2(mu.link="identity",sigma.link = "log")
+              )
+smr = summary(fit3)
+
+coef = as.data.frame(smr)
+colnames(coef)[1:3] = c("Estimativa","Erro padrão","Valor t")
+coef[,1:3] <- round(coef[, 1:3], 2)
+coef[, 4] <- round(coef[, 4], 3)
+
+mu = coef[1:5,]
+sigma = coef[6:9,]
+```
+
+Estimativas para $\mu$
+
+```{r,echo=FALSE}
+kable(mu)
+```
+
+Estimativas para $\sigma^2$
+
+```{r,echo=FALSE}
+kable(sigma)
+```
+
+Notamos que este modelo, com as covariáveis tamanho do refrigerador, tamanho do freezer, custo de operação e quantidade de prateleiras explicando a média, e tamanho do refrigerador, quantidade de prateleiras e quantidade de recursos modelando a variância, obtém significância marginal para todas as covariáveis, e aparenta ser um modelo parcimonioso. Ainda não interpretando os coeficientes das estimativas dos parâmetros, mas simplesmente comparando com os coeficientes obtidos no modelo normal homocedástico, ainda existem valores que não fazem sentido, como o custo de operação com valor negativo. Portanto, acredito que os resultados obtidos com o MLG duplo gaussiano heterocedástico ainda não é o melhor possível de ser obtido para este conjunto de dados. Ainda assim, farei algumas etapas de diagnóstico deste modelo, afim de identificar possíveis pontos positivos e negativos deste.
+
+```{r,echo=FALSE,results='hide',fig.keep='all'}
+plot(fit3)
+```
+
+Destes gráficos de diagnósticos, o maior problema aparenta ser assimetria do modelo. Para avaliar melhor esta questão, irei utilizar o wormplot, juntamente com a seguinte tabela, de Gonçalves (2024), para avaliar o modelo:
+
+```{r,echo=FALSE}
+tabela <- data.frame(
+  `Forma` = c("Concentração Acima da Origem", "Concentração Abaixo da Origem", "Inclinação Positiva", "Inclinação Negativa", "Forma de U", "Forma de U Invertido", "Forma de S com Esquerda para Baixo", "Forma de S com Esquerda para Cima"),
+  `Resíduos` = c("Média Muito Alta", "Média Muito Baixa", "Variância Muito Alta", "Variância Muito Baixa", "Assimetria à Direita", "Assimetria à Esquerda", "Leptocúrticos", "Platicúrticos"),
+  `Interpretação` = c("Parâmetro de Localização Subestimado", "Parâmetro de Localização Sobrestimado", "Parâmetro de Escala Muito Baixo", "Parâmetro de Escala Muito Alto", "Excesso de Assimetria à Esquerda", "Excesso de Assimetria à Direita", "Caudas Muito Leves", "Caudas Muito Pesadas")
+)
+
+kable(tabela)
+
+```
+
+
+```{r,include=FALSE}
+detach(df)
+dados <- df
+attach(dados)
+```
+
+E este é o wormplot deste ajuste:
+
+```{r,echo=FALSE,results='hide',fig.keep='all'}
+
+
+fit3 <- gamlss(preco ~ tamanho_refrigerador + tamanho_freezer + custo_op + prateleiras,
+              sigma.formula = preco ~ tamanho_refrigerador + prateleiras + recursos ,
+              family = NO2(mu.link="identity",sigma.link = "log")
+              )
+
+wp(fit3)
+```
+
+Comparando a Figura com as indicações da Tabela, notamos que o formato de U invertido, o que indica problemas com excesso de assimetria à direita. Este diagnóstico faz todo sentido, visto que estou tentando modelar dados com imagem em $(0,\infty)$ utilizando uma distribuição com imagem nos reais $(-\infty,\infty)$. Portanto, o ideal é buscar uma distribuição que se encaixe melhor nestas especificidades, ao invés de seguir tentando o modelo normal
+
+## Modelo gama
+
+O modelo gama é uma possibilidade interessante, visto que esta distribuição têm suporte nos positivos, o que é compatível com a natureza destes dados.
+
+Tentarei uma modelagem MLG gama, utilizando o pacote gamlss, com ligação log para a média — e sem tentar adicionar parâmetros para a precisão num primeiro momento. Irei iniciar o ajuste com o modelo saturado.
+
+```{r, include=FALSE}
+fit4 <- gamlss(preco ~ .,
+               data = dados,
+               family = GA
+              )
+smr = summary(fit4)
+coef = as.data.frame(smr)
+colnames(coef)[1:3] = c("Estimativa","Erro padrão","Valor t")
+coef[,1:3] <- round(coef[, 1:3], 2)
+coef[, 4] <- round(coef[, 4], 3)
+```
+
+```{r,echo=FALSE}
+kable(coef)
+```
+
+```{r,include=FALSE}
+stepAIC(fit4)
+```
+
+Observando as significâncias marginais, notamos que a modelagem saturada utilizando a gama indica significância marginal para todas as covariáveis. Seguimos com a interpretação estranha do coeficiente relacinado a covariável custo de operação com sinal negativo. O procedimento stepAIC indica também pela manutenção deste modelo saturado. Como na gama estamos naturalmente modelando a precisão ainda que sem adicionar parâmetros para $\sigma$, notamos que o intercepto também é significativo. Este pode ser um indício de que seja interessante adicionar covariáveis na precisão para modelá-la também de forma a melhorar o ajuste do modelo.
+
+```{r,echo=FALSE}
+wp(fit4)
+```
+
+```{r,echo=FALSE,results='hide',fig.keep='all'}
+plot(fit4)
+```
+
+Os gráficos de diagnóstico mostram que já temos uma melhora em relação a utilização do modelo gaussiano. o wormplot não detecta um padrão significativo dente os que constam na Tabela de interpretação deste gráfico, enquanto os demais gráficos de diagnóstico mostram que ainda existem problemas na forma da distribuição, mas que no geral já é um modelo melhor ajustado aos dados. 
+
+## MLG Duplo: Gama
+
+Tentarei uma abordordagem MLG duplo, adicionando covariáveis para melhor modelar a precisão afim de observar se o ajuste do modelo melhora ainda mais.
+
+```{r, include=FALSE}
+fit5 <- gamlss(preco ~ .,
+               sigma.fo = preco ~.,
+               data = dados,
+               family = GA
+              )
+smr = summary(fit5)
+coef = as.data.frame(smr)
+colnames(coef)[1:3] = c("Estimativa","Erro padrão","Valor t")
+coef[,1:3] <- round(coef[, 1:3], 2)
+coef[, 4] <- round(coef[, 4], 3)
+mu = coef[1:6,]
+sigma = coef[7:12,]
+
+```
+
+Estimativas para $\mu$
+
+```{r,echo=FALSE}
+kable(mu)
+```
+
+Estimativas para $\sigma^2$
+
+```{r,echo=FALSE}
+kable(sigma)
+```
+
+```{r,include=FALSE}
+stepAIC(fit5)
+```
+
+Notamos que existem covariáveis significativas e não significativas marginalmente quando testamos o modelo com todas as covariáveis modelando tanto $\mu$ quanto a precisão. O procedimento stepAIC indica pela remoção da covariável recursos para modelar o parâmetro $\mu$, e deixar todas as covariáveis para modelar a precisão. Neste caso, chegaríamos a estimativas de parâmetros que ainda assim contaria com significâncias marginais bastante precárias, e seguiríamos com um modelo de difícil interpretação, principalmente pela covariável custo de operação seguir com valor negativo. A análise descritiva já havia indicado possíveis problemas de multicolineariedade, portanto acredito que este seja o passo em que devemos forçar mão de obter um modelo parcimonioso e interpretável, portanto testarei colocar covariáveis que acredito que sejam mais pertinentes para os parâmetros, levando em consideração tudo que fora analisado até agora. Portanto, utilizarei as covariáveis tamanho do refrigerador, tamanho do freezer e número de prateleiras para modelar o parâmetro $\mu$, enquanto que para o parâmetro de precisão utilizarei as covariáveis tamanho do refrigerador, quantidade de prateleiras e quantidade de recursos, utilizando a distribuição gama com função de ligação log para ambos os parâmetros. Veremos como fica este ajuste
+
+```{r,include=FALSE}
+fit6 <- gamlss(preco ~ tamanho_refrigerador + tamanho_freezer + prateleiras,
+               sigma.fo = preco ~ tamanho_refrigerador + prateleiras + recursos,
+               data = dados,
+               family = GA
+               )
+
+smr = summary(fit6)
+coef = as.data.frame(smr)
+colnames(coef)[1:3] = c("Estimativa","Erro padrão","Valor t")
+coef[,1:3] <- round(coef[, 1:3], 2)
+coef[, 4] <- round(coef[, 4], 3)
+mu = coef[1:4,]
+sigma = coef[5:8,]
+```
+
+Estimativas para $\mu$
+
+```{r,echo=FALSE}
+kable(mu)
+```
+
+Estimativas para $\sigma^2$
+
+```{r,echo=FALSE}
+kable(sigma)
+```
+
+
+```{r,echo=FALSE}
+wp(fit6)
+```
+
+```{r,echo=FALSE,results='hide',fig.keep='all'}
+plot(fit6)
+```
+
+Analisando este modelo, notamos que não existem grandes fugas as suposições nas etapas de diagnóstico, e este parece ser um modelo aderente e coerente para estes dados, além de ainda contar com interpretação relativamente fácil. É do objetivo desta lista percorrer diversas possibilidades de modelagem para estes dados, e por este motivo seguirei testando ajustes em seguida. Entretanto, já é possível interpretar este modelo, pois numa situação real acredito que seria possível optar já por este modelo.
+
+Portanto, como utilizamos ligação log e para a gama o parâmetro $\mu$ é a média mesmo, então a interpretação para estes coeficientes está associado a um aumento percentual na variável resposta mesmo. Desta forma, podemos dizer que, mantido constante todas as demais covariáveis, existe um aumento percentual da média do preço em $e^{0,15} \approx 1,1618 \rightarrow 16,18\%$ para cada pé cúbico extra do refrigerador. Existe um aumento percentual da média do preço em $e^{0,14} \approx 1,1503 \rightarrow 15,03\%$ para cada aumento no tamanho do freezer. Existe também um aumento percentual da média do preço em $e^{0,09} \approx 1,0942 \rightarrow 9,42\%$ para cada prateleira extra do refrigerador. 
+
+## Modelo Birnbaum-Saunders reparametrizado pela média
+
+Resolvi trazer aqui a possibilidade de utilizar o modelo RBS (Birnbaum-Saunders reparametrizado pela média), pois é um modelo que estudei recentemente para meu seminário desta disciplina. Este modelo é adequado para esta natureza de dados (suporte nos positivos), e a reparametrização pela média e implementação utilizando o framework do gamlss facilita bastante tanto a modelagem quanto a interpretação dos parâmetros. Tentarei primeiramente a modelagem somente da média utilizando a RBS, utilizando todas as covariáveis menos custo de operação (pois num primeiro teste, a estimativa do parâmetro assiciada à esta covariável seguia com sinal negativo como nos modelos anteriores, o que dificulta a interpretação. Portanto, se for possível obter um ajuste satisfatório sem utilizar esta covariável, seria preferível).
+
+```{r, include=FALSE}
+library(RBS)
+```
+
+
+```{r, include=FALSE}
+fit7 = gamlss(preco ~ tamanho_refrigerador + tamanho_freezer + prateleiras + recursos,
+              data = dados,
+              family=RBS(mu.link="identity"),method=CG())
+summary(fit7)
+stepAIC(fit7)
+
+smr = summary(fit7)
+coef = as.data.frame(smr)
+colnames(coef)[1:3] = c("Estimativa","Erro padrão","Valor t")
+coef[,1:3] <- round(coef[, 1:3], 2)
+coef[, 4] <- round(coef[, 4], 3)
+```
+
+```{r,echo=FALSE}
+kable(coef)
+```
+
+Os coeficientes apresentam significância marginal para todos os casos, e os valores dos parâmetros são de fácil interpretação, considerando que neste caso estamos modelando a média com função de ligação identidade — portanto a interpretação seria direta. Entretando, é importante observar os diagnósticos deste modelo antes de qualquer coisa.
+
+```{r,echo=FALSE}
+wp(fit7)
+```
+
+```{r,echo=FALSE,results='hide',fig.keep='all'}
+plot(fit7)
+```
+
+O wormplot mostra que os resíduos tem um formato de U, problema inverso ao observado no modelo gaussiano heterocedástico. Neste caso, o gráfico está indicando problema de assimetria à esquerda. 
+
+Os outros gráficos de diagnóstico sugerem também o problema da assimetria, bem como menor aderência dos resíduos quantílicos ao quantis teóricos da distribuição assintótica (normal).
+
+Ou seja, este modelo até poderia ser utilizado, mas o modelo anterior (gama duplo) cumpriu com maior rigor os diagnósticos.
+
+## Modelo duplo: Birnbaum-Saunders reparametrizado pela média
+
+Podemos ainda tentar modelar a precisão, para tentar obter um ajuste melhor utilizando a RBS.
+
+```{r, include=FALSE}
+fit8 = gamlss(preco ~ tamanho_freezer + prateleiras + recursos,
+              sigma.formula = preco ~ tamanho_refrigerador + tamanho_freezer + custo_op,
+              data = dados,
+              family=RBS(mu.link="log"),method=CG())
+stepAIC(fit8)
+
+smr = summary(fit8)
+coef = as.data.frame(smr)
+colnames(coef)[1:3] = c("Estimativa","Erro padrão","Valor t")
+coef[,1:3] <- round(coef[, 1:3], 2)
+coef[, 4] <- round(coef[, 4], 3)
+mu = coef[1:4,]
+sigma = coef[5:8,]
+```
+
+Para este modelo, foi testada a utilização de todas as covariáveis para modelagem de ambos os parâmetros, porém observando a significância marginal e utilizando o procedimento stepAIC, selecionou-se um modelo mais parcimonioso, contendo as covariáveis tamanho do freezer, número de prateleiras e quantidade de recursos para modelagem de $\mu$, e as covariáveis tamanho do refrigerador, tamanho do freezer e custo de operação para modelagem do parâmetro de precisão.
+
+Além disso, utilizou-se aqui a função de ligação log tanto para o parâmetro $\mu$ quanto para a precisão, afim de obter um melhor modelo segundo testes realizados anteriormente.
+
+Ao fim, estes foram os coeficientes das estimativas dos parâmetros associados à cada uma das covariáveis:
+
+Estimativas para $\mu$
+
+```{r,echo=FALSE}
+kable(mu)
+```
+
+Estimativas para $\sigma^2$
+
+```{r,echo=FALSE}
+kable(sigma)
+```
+
+Entretanto, é sempre imperativo realizar uma análise dos diagnósticos do modelo antes de qualquer interpretação:
+
+```{r,echo=FALSE}
+wp(fit8)
+```
+
+```{r,echo=FALSE,results='hide',fig.keep='all'}
+plot(fit8)
+```
+
+Os gráficos de diagnóstico sugerem que a modelagem dupla da RBS não foi suficiente para resolver os problemas da utilização desta distribuição para este conjunto de dados. O wormplot não apresenta um padrão problematico claro descrito na tabela, entretanto existem oscilações e fuga das margens sugeridas do gráfico. Os demais gráficos de diagnóstico mostram problemas na aderência dos resíduos quantílicos próximos à média, formando um padrão hiperbólico. Os problemas relacionados à assimetria estão menos acentuados se comparado ao modelo RBS simples, entretando ainda inferiores se comparado com o modelo gama duplo.
+
+## Modelagem indicada pelo gamlss
+
+Podemos, por último, verificar a sugestão automática calculada via critério de seleção de Akaike do pacote gamlss, utilizando a função fitDist.
+
+```{r,include=FALSE}
+f1 <- fitDist(preco, type="realplus") 
+```
+
+```{r,echo=FALSE}
+kable(f1$fits,col.names = "AIC")
+```
+
+A tabela acima apresenta as famílias com suporte nos reais positivos, ordenadas do menor para o maior valor do critério de informação de Akaike se ajustado o modelo saturado. Neste caso, quanto menor, melhor o modelo. Notamos que a gama generalizada apresenta o menor AIC, com valor de 452,34; seguida de perto pelos modelos box cox cole green, beta generalizada tipo 2, box cox t, box cox exponenciada e gama inversa. Destes, salvo a gama generalizada, o parâmetro $\mu$ se trata ou da mediana, ou de um parâmetro de localização sem interpretação clara. Para a gama generalizada, o parâmetro $\mu$ é a média mesmo.
+
+Note que no modelo MLG duplo gama utilizado anteriormente, o critério de Akaike observado foi de 405, portanto ainda é melhor que qualquer um destes modelos sugerido pelo gamlss. Entretanto, podemos testar o ajuste fazendo seleção de covariáveis com um destes modelos afim de verificar se obtemos um ajuste ainda melhor. Para isto, irei selecionar o mais parcimonioso, de fácil interpretação e menor critério de Akaike entre os listados, que por acaso é o de menor critério absoluto, a gama generalizada.
+
+## Modelagem gama generalizada
+
+Como o objetivo é tentar obter o melhor ajuste final possível, farei direto a modelagem dupla, dos parâmetros de média e precisão.
+
+```{r,include=FALSE}
+fit9 = gamlss(preco ~ tamanho_refrigerador + tamanho_freezer + prateleiras + recursos,
+              sigma.formula = preco ~ prateleiras,
+              data = dados,
+              family=GG)
+stepAIC(fit9)
+
+smr = summary(fit9)
+coef = as.data.frame(smr)
+colnames(coef)[1:3] = c("Estimativa","Erro padrão","Valor t")
+coef[,1:3] <- round(coef[, 1:3], 2)
+coef[, 4] <- round(coef[, 4], 3)
+mu = coef[1:5,]
+sigma = coef[6:7,]
+```
+
+Testou-se aqui diversas combinações de covariáveis para cada um dos parâmetros $\mu$ e precisão. Observando significâncias marginais, qualidade do ajuste, valor AIC, sugestões do procedimento stepAIC, optou-se pelo seguinte modelo: Gama generalizado, com função de ligação log para ambos os parâmetros, sendo a média $\mu$ modelada utilizando as covariáveis tamanho do refrigerador, tamanho do freezer, quantidade de prateleiras e quantidade de recursos. A precisão foi modelada utilizando a covariável quantidade de prateleiras.
+
+Desta forma, obteve-se as seguintes estimativas de parâmetros:
+
+Estimativas para $\mu$
+
+```{r,echo=FALSE}
+kable(mu)
+```
+
+Estimativas para $\sigma^2$
+
+```{r,echo=FALSE}
+kable(sigma)
+```
+
+Notamos que todas as estimativas para o parâmetro $\mu$ são positivos e consistentes com o esperado para o conjunto de dados. A covariável associada a precisão não apresenta significância marginal, entretando a escolha deu-se pela tentativa manual sucessiva de obter o melhor ajuste com os diagnósticos mais aceitáveis, e esta foi a combinação que forceneu estes resultados. Portanto, a interpretação da precisão pode não ser confiável, mas o ajuste global do modelo aparenta estar adequado desta forma.
+
+Isso pode ser observado nos gráficos de diagnóstico:
+
+```{r,echo=FALSE}
+wp(fit9)
+```
+
+```{r,echo=FALSE,results='hide',fig.keep='all'}
+plot(fit9)
+```
+
+Este modelo têm o wormplot mais "comportado" de todas as tentativas realizadas no decorrer deste trabalho. Além disso, os demais gráficos de diagnóstico não apresentam grandes fugas aos pressupostos do modelo. Portanto, este modelo é candidato a ser utilizado também.
+
+Entretando, na minha opinião, o ajuste fornecido pela gama ainda foi superior e mais parcimonioso do que este, desta forma, irei manter a escolha pelo ajuste utilizando o mlg duplo gama, realizado anteriormente.
+
+
+# Referências
+
+RIGBY, Robert A. et al. Distributions for modeling location, scale, and shape: Using GAMLSS in R. Chapman and Hall/CRC, 2019.
+
+Gonçalves, Stefan Zurman. Estudo sobre Modelos Aditivos Generalizados para Localização, Escala e Forma: Teoria e Aplicações sob Modelos Paramétricos. UnB, 2024.
+
